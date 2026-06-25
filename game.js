@@ -236,6 +236,7 @@ function buildTower(){
 let roofBarrier=null, roofOpen=false; // barrier at the top of the stairs → roof deck
 const stairGates=[];                   // barricades partway up the spiral {h, a, cleared, grp}
 function climbCap(){ let c=Infinity; for(const g of stairGates){ if(!g.cleared && g.h<c) c=g.h; } return c; }
+const wallDogs=[];                     // werewolf wall mounts {grp, x,y,z, zone, hr, kind}
 
 function buildTowerInterior(){
   // INTERIOR: ground floor, central column, walkable spiral staircase, roof deck + barrier.
@@ -436,16 +437,27 @@ function angDist(a,b){ let d=Math.abs((a-b)%360); if(d>180) d=360-d; return d; }
 // unlock spawn points near a bearing (called when a gate/area opens)
 function unlockSpawnsNear(deg){ if(!G.spawnPoints) return;
   for(const sp of G.spawnPoints){ if(angDist(sp.deg,deg)<46) sp.locked=false; } }
-// choose a spawn origin: an UNLOCKED point, far from the player, never on top of them
+// which zone is the player in — controls where zombies spawn so there's always action nearby
+function playerZone(){
+  const y=G.eyeY||EYE;
+  if(y > STAIR_TOP-4) return 'roof';
+  if(Math.abs(camera.position.x)<TOWER_H && Math.abs(camera.position.z)<TOWER_H && y<10) return 'inside';
+  return 'outside';
+}
+// choose a spawn origin in the player's zone, far enough that it's never on top of them
 function pickSpawn(){
-  const px=camera.position.x, pz=camera.position.z;
+  const px=camera.position.x, pz=camera.position.z, zone=playerZone();
   const all=G.spawnPoints||[];
-  let pool=all.filter(s=>!s.locked); if(!pool.length) pool=all.slice();
-  let cands=pool.filter(s=>Math.hypot(s.x-px,s.z-pz)>16); if(!cands.length) cands=pool;
+  const minD = zone==='outside'?16:9;
+  let pool=all.filter(s=>s.zone===zone && !s.locked);
+  if(!pool.length) pool=all.filter(s=>s.zone==='outside' && !s.locked);
+  if(!pool.length) pool=all.slice();
+  let cands=pool.filter(s=>Math.hypot(s.x-px,s.z-pz)>minD); if(!cands.length) cands=pool;
   cands.sort((a,b)=>Math.hypot(b.x-px,b.z-pz)-Math.hypot(a.x-px,a.z-pz));
   const top=Math.max(1,Math.ceil(cands.length/2));      // pick from the farther half
-  const s=cands[(Math.random()*top)|0] || {x:Math.cos(0)*46,z:Math.sin(0)*46};
-  return [s.x+(Math.random()-0.5)*5, s.z+(Math.random()-0.5)*5];
+  const s=cands[(Math.random()*top)|0] || {x:46,z:0,zone:'outside',y:0};
+  const jit = zone==='outside'?5:3;
+  return [s.x+(Math.random()-0.5)*jit, s.z+(Math.random()-0.5)*jit, s.y||0, zone];
 }
 
 function addInteractable(o){ interactables.push(o); if(o.group){ KIT.shadow(o.group); scene.add(o.group);}
@@ -497,7 +509,11 @@ function buildStations(){
   for(let i=0;i<NSP;i++){ const deg=i*(360/NSP);
     const x=Math.cos(deg*Math.PI/180)*46, z=Math.sin(deg*Math.PI/180)*46;
     const dHub=angDist(deg,90);            // angular distance to the start hub (90°)
-    G.spawnPoints.push({x,z,deg,locked:dHub>52}); }
+    G.spawnPoints.push({x,z,deg,zone:'outside',y:0,locked:dHub>52}); }
+  // interior ground-floor spawns (zombies appear in the room when you're inside)
+  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2; G.spawnPoints.push({x:Math.cos(a)*24,z:Math.sin(a)*24,deg:0,zone:'inside',y:0,locked:false}); }
+  // rooftop spawns (zombies to train near the roof dog when you're up top)
+  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2+0.3; G.spawnPoints.push({x:Math.cos(a)*26,z:Math.sin(a)*26,deg:0,zone:'roof',y:STAIR_TOP+0.5,locked:false}); }
 
   // JUGGERNAUT PERK (early, south side, no gate)
   { const [x,z]=pos(90+20); const g=KIT.makePerkMachine(['JUGGERNAUT'],0x8B4513,0xff6b35);
@@ -530,6 +546,64 @@ function buildStations(){
     G.bossYard={x,z}; }
   // East deep-woods (deg 30): lmg wall + wonder via crate only
   { const [x,z]=pos(30); addWallBuy(x,z+7,'lmg',6000); addFireLight(x+6,z); }
+
+  buildWallDogs();
+}
+
+// Two werewolf wall-mounts you FEED by killing zombies nearby (same zone, within hr).
+// #1 (ground floor) gives the Retriever Axe; #2 (roof) upgrades it.
+function buildWallDogs(){
+  wallDogs.length=0;
+  const mk=(x,y,z,ry,zone,kind,max)=>{
+    const g=KIT.makeWerewolf(); g.scale.setScalar(1.0); g.position.set(x,y,z); g.rotation.y=ry;
+    g.userData.max=max; if(g.userData.feed) g.userData.feed(0);
+    scene.add(g);
+    // accent light so the beast reads in the dark interior / on the roof
+    const dl=new T.PointLight(0xffb060, 1.4, 16, 2); dl.position.set(x, y+1, z+3); scene.add(dl);
+    const dog={grp:g, ud:g.userData, x, y, z, zone, kind, hr:20, fed:0};
+    wallDogs.push(dog);
+    addInteractable({ x, z, radius:5, type:'walldog', dog,
+      label:()=>{ if(dogPromptHidden(dog)) return null;
+        if(!dog.ud.full) return {key:'F', txt:'Feed the beast — '+dog.ud.fed+'/'+dog.ud.max+' kills', cost:0, cant:true};
+        if(kind==='give') return dog.ud.used?null:{key:'F', txt:'Take the RETRIEVER AXE', cost:0};
+        // upgrade dog
+        const ax=G.weapons.find(w=>w.type==='axe');
+        if(!ax) return {key:'F', txt:'Need the Retriever Axe first', cost:0, cant:true};
+        if(ax.pap) return null;
+        return {key:'F', txt:'Empower the RETRIEVER AXE', cost:0}; },
+      run:()=> dogInteract(dog) });
+    return dog;
+  };
+  // #1 — ground floor, mounted low on the north interior wall (not the staircase)
+  mk(0, 3.0, -(TOWER_H-2), 0, 'inside', 'give', 20);
+  // #2 — rooftop, mounted on the north parapet, a nice training spot
+  mk(0, STAIR_TOP+3.0, -(TOWER_H-2), 0, 'roof', 'upgrade', 20);
+}
+function dogPromptHidden(dog){
+  // only show the dog prompt when you're actually in its zone (height-gated)
+  const y=G.eyeY||EYE;
+  if(dog.zone==='roof') return y < STAIR_TOP-6;
+  return y > 12;   // ground-floor dog hidden when you're up high
+}
+function dogInteract(dog){
+  if(dogPromptHidden(dog) || !dog.ud.full) return false;
+  if(dog.kind==='give'){
+    if(dog.ud.used) return false;
+    giveWeapon('axe', false); dog.ud.used=true;
+    AU.powerup(); toast('RETRIEVER AXE','hold L-click to charge & hurl'); return true;
+  } else {
+    const ax=G.weapons.find(w=>w.type==='axe'); if(!ax || ax.pap) return false;
+    ax.pap=true; ax.reserve=WDEF.axe.reserve; dog.ud.upgraded=true;
+    if(curW()===ax) buildPlayerArms();
+    AU.powerup(); toast('AXE EMPOWERED','Hell\'s Redeemer — max damage'); return true;
+  }
+}
+// called from killEnemy: feed any dog whose zone matches and is within horizontal range
+function feedDogs(x,z,zone){
+  for(const dog of wallDogs){
+    if(dog.ud.full || dog.zone!==zone) continue;
+    if(Math.hypot(x-dog.x, z-dog.z) < dog.hr){ dog.fed++; dog.ud.feed(dog.fed); }
+  }
 }
 
 function addWallBuy(x,z,wtype,cost){
@@ -585,7 +659,7 @@ function poolEntry(isCrawler){
   grp.add(makeBlob());
   grp.visible=false; scene.add(grp);
   return { grp, anim:grp.userData.update, isCrawler, alive:false,
-           hp:0, speed:0, atkCd:0, dieT:0, riseT:0,
+           hp:0, speed:0, atkCd:0, dieT:0, riseT:0, zone:'outside', baseY:0,
            bodyY:isCrawler?0.34:1.2, bodyR:isCrawler?0.5:0.6, headY:isCrawler?0.4:1.74, headR:0.3 };
 }
 function initEnemyPools(){
@@ -611,8 +685,9 @@ function spawnPositionNearPlayer(){
 function spawnZombie(crawler){
   const e = zombies.find(z=>!z.alive && z.isCrawler===crawler) || zombies.find(z=>!z.alive);
   if(!e) return false;
-  const [x,z]=pickSpawn();
-  e.grp.position.set(x,0,z); e.grp.scale.setScalar(0.01); e.grp.visible=true;
+  const [x,z,baseY,zone]=pickSpawn();
+  e.zone=zone||'outside'; e.baseY=baseY||0;
+  e.grp.position.set(x,e.baseY,z); e.grp.scale.setScalar(0.01); e.grp.visible=true;
   e.alive=true; e.dieT=0; e.riseT=0; e.atkCd=0;
   const r=G.round;
   e.hp = Math.round((e.isCrawler?70:100) * (1 + r*0.18)) + (e.isCrawler?0:r*4);
@@ -830,6 +905,7 @@ function damageEnemy(e, dmg, head){
 function killEnemy(e, head){
   e.alive=false; e.grp.visible=false; G.aliveCount--;
   G.kills++; addPoints(head?100:60);
+  feedDogs(e.grp.position.x, e.grp.position.z, e.zone);   // feed a nearby wall dog
   if(Math.random()<0.04 + (G.round>3?0.02:0)) spawnDrop(e.grp.position.x, e.grp.position.z);
   checkRoundProgress();
 }
@@ -1015,8 +1091,27 @@ function clampArena(x,z, rad, isPlayer, playerY){
   _v3.set(x,0,z); return _v3;
 }
 
+// zone-aware enemy collision: 'outside' = solid tower + props; 'inside' = stay in the room,
+// off the column; 'roof' = stay on the deck ring (don't fall through the hole).
+function clampEnemy(x,z, rad, zone){
+  if(zone==='inside'){
+    const r=Math.hypot(x,z); const maxR=TOWER_H-1.5;
+    if(r>maxR){ x*=maxR/r; z*=maxR/r; }
+    const minR=STAIR_RIN+rad; const r2=Math.hypot(x,z);
+    if(r2<minR && r2>0.001){ const f=minR/r2; x*=f; z*=f; }
+    _v3.set(x,0,z); return _v3;
+  }
+  if(zone==='roof'){
+    const r=Math.hypot(x,z)||0.001; const inR=STAIR_ROUT+1.2, outR=TOWER_H-2.5;
+    if(r<inR){ const f=inR/r; x*=f; z*=f; } else if(r>outR){ const f=outR/r; x*=f; z*=f; }
+    _v3.set(x,0,z); return _v3;
+  }
+  return clampArena(x,z,rad,false);
+}
+
 function updateEnemies(dt){
   const px=camera.position.x, pz=camera.position.z, et=clock.elapsedTime;
+  const pFootY = (G.eyeY||EYE)-EYE;
   for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
     // rise-in scale
     if(e.grp.scale.x<1){ e.grp.scale.setScalar(Math.min(1, e.grp.scale.x+dt*3)); }
@@ -1025,11 +1120,12 @@ function updateEnemies(dt){
     e.grp.rotation.y = Math.atan2(dx,dz);
     if(dist>1.4){
       const sp=e.speed*dt; let nx=e.grp.position.x+dx/dist*sp, nz=e.grp.position.z+dz/dist*sp;
-      const c=clampArena(nx,nz,0.5,false); e.grp.position.x=c.x; e.grp.position.z=c.z;
+      const c=clampEnemy(nx,nz,0.5,e.zone); e.grp.position.x=c.x; e.grp.position.z=c.z;
     } else {
-      // melee
-      e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.isCrawler?8:14); }
+      // melee — only if on roughly the same level as the player
+      if(Math.abs(e.baseY-pFootY)<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.isCrawler?8:14); } }
     }
+    e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
     if(e.anim) e.anim(et + i); // shamble (kit closure)
   }
   // mini-boss
@@ -1235,8 +1331,9 @@ function resetRun(){
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
   if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=0; }
   for(const g of stairGates){ g.cleared=false; if(g.grp) g.grp.visible=true; }
-  // re-lock spawn points except the starting hub arc; re-close all gates
-  if(G.spawnPoints) for(const sp of G.spawnPoints) sp.locked = angDist(sp.deg,90)>52;
+  for(const dog of wallDogs){ dog.fed=0; dog.ud.full=false; dog.ud.used=false; dog.ud.upgraded=false; if(dog.ud.feed) dog.ud.feed(0); }
+  // re-lock OUTSIDE spawn points except the starting hub arc; interior/roof stay open; re-close gates
+  if(G.spawnPoints) for(const sp of G.spawnPoints){ sp.locked = (sp.zone==='outside') && angDist(sp.deg,90)>52; }
   for(const it of interactables){ if(it.type==='gate'){ it.open=false; it.anim=0;
     for(const pk of it.planks){ pk.mesh.visible=true; pk.mesh.position.y=pk.cy; pk.mesh.rotation.z=pk.cr; } } }
   camera.position.set(pos(90)[0], EYE, pos(90)[1]-3); G.yaw=Math.PI; G.pitch=0; G.eyeY=EYE; G.vy=0;
@@ -1288,6 +1385,7 @@ function loop(){
     const et=clock.elapsedTime;
     for(const pl of pointLights){ pl.light.intensity=pl.base+Math.sin(et*11+pl.ph)*0.35+Math.random()*0.12;
       if(pl.flame) pl.flame.scale.y=1+Math.sin(et*10+pl.ph)*0.2; }
+    for(const dog of wallDogs){ if(dog.ud.update) dog.ud.update(et); }
     updateFx();
     updateCameraZoom();
     if(fpsCounter) fpsTick();
@@ -1389,6 +1487,8 @@ window.__interactables=()=>interactables;
 window.__doorOpen=()=>doorOpen;
 window.__roofOpen=()=>roofOpen;
 window.__stairGates=()=>stairGates;
+window.__wallDogs=()=>wallDogs;
+window.__feedDogs=(x,z,zone)=>feedDogs(x,z,zone);
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
   let n=0; while(G.aliveCount<MAX_Z && n<MAX_Z){ if(!spawnZombie(n%4===0)) break; G.toSpawn=Math.max(0,G.toSpawn-1); n++; } return G.aliveCount; };
 window.__fireTest=()=>{ // aim at an alive enemy and confirm hitscan kills + awards points

@@ -535,24 +535,28 @@ class Kit {
     // victim zombie for eat anim
     const victim=this.makeZombie(); victim.scale.setScalar(0.5); victim.visible=false; g.add(victim); const vu=victim.userData.update;
     // fed counter label
-    let shown=-1; const cmat=new THREE.MeshBasicMaterial({ transparent:true });
+    let shown=''; const cmat=new THREE.MeshBasicMaterial({ transparent:true });
     const cplane=new THREE.Mesh(new THREE.PlaneGeometry(1.7,0.42), cmat); cplane.position.set(0,-2.0,0.6); g.add(cplane);
-    const setCount=(n)=>{ if (n===shown) return; shown=n; cmat.map=this.label(n>=25?'FULL':('FED '+n+'/25'), n>=25?'#ff8a3a':'#cfe0ff'); cmat.needsUpdate=true; };
-    g.userData.update=(t)=>{
-      const C=22, ph=t%C;
-      if (ph<16){
-        face.visible=true; pin.visible=false;
-        jaw.rotation.x=Math.max(0,Math.sin(t*8))*0.5;
-        face.position.y=0.7+Math.sin(t*4)*0.05;
-        const ec=(ph%2)/2;
-        if (ec>0.12 && ec<0.7){ victim.visible=true; const k=(ec-0.12)/0.58; victim.position.set(0,-0.1,3.0-k*2.2); victim.scale.setScalar(0.5*(1-k*0.7)); if(vu)vu(t); jaw.rotation.x=0.65; }
-        else victim.visible=false;
-        setCount(Math.min(24,Math.floor(ph/2)*3+Math.floor(ph/2)));
-      } else {
-        face.visible=false; pin.visible=true; victim.visible=false;
-        g.rotation.z=Math.sin(t*2)*0.04; setCount(25);
-      }
+    const setLabel=(n,max,txt)=>{ const key=txt||(n+'/'+max); if (key===shown) return; shown=key;
+      cmat.map=this.label(txt||(n>=max?'FULL':('FED '+n+'/'+max)), n>=max?'#ff8a3a':'#cfe0ff'); cmat.needsUpdate=true; };
+    // ── GAMEPLAY API: feed externally; swaps to the Pingas face when full ──
+    let lastT=0, eatStart=-9;
+    g.userData.fed=0; g.userData.max=20; g.userData.full=false; g.userData.upgraded=false;
+    g.userData.feed=(n)=>{ g.userData.fed=Math.min(g.userData.max, (n==null? g.userData.fed+1 : n));
+      eatStart=lastT; setLabel(g.userData.fed,g.userData.max);
+      if(g.userData.fed>=g.userData.max) g.userData.full=true; };
+    g.userData.setLabel=(txt)=>setLabel(0,g.userData.max,txt);
+    g.userData.update=(t)=>{ lastT=t;
+      if(g.userData.full){ face.visible=false; pin.visible=true; victim.visible=false; g.rotation.z=Math.sin(t*2)*0.04;
+        setLabel(g.userData.max,g.userData.max, g.userData.upgraded?'UPGRADED':'READY — HOLD F'); return; }
+      face.visible=true; pin.visible=false; g.rotation.z=0;
+      jaw.rotation.x=Math.max(0,Math.sin(t*7))*0.35;            // idle chomp
+      face.position.y=0.7+Math.sin(t*3)*0.04;
+      const e=t-eatStart;                                       // brief eat anim after each feed
+      if(e>=0 && e<0.7){ victim.visible=true; const k=e/0.7; victim.position.set(0,-0.1,3.0-k*2.4); victim.scale.setScalar(0.5*(1-k*0.6)); if(vu)vu(t); jaw.rotation.x=0.6; }
+      else victim.visible=false;
     };
+    setLabel(0,20);
     return g;
   }
   makeMegaBoss() {
