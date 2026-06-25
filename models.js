@@ -244,9 +244,11 @@ class Kit {
       smg:     { ws:0.62, wp:[0.15,-0.32,-0.82], wr:[0.05,Math.PI,0], rh:[0.17,-0.45,-0.56], rr:[0.68,0.18,0.05], lh:[0.03,-0.42,-1.00], lr:[1.0,-0.28,0] },
       shotgun: { ws:0.62, wp:[0.14,-0.33,-0.90], wr:[0.05,Math.PI,0], rh:[0.16,-0.46,-0.56], rr:[0.68,0.18,0.05], lh:[0.04,-0.43,-1.14], lr:[1.02,-0.3,0] },
       rifle:   { ws:0.60, wp:[0.14,-0.33,-0.94], wr:[0.05,Math.PI,0], rh:[0.16,-0.47,-0.58], rr:[0.7,0.18,0.05],  lh:[0.02,-0.42,-1.18], lr:[1.04,-0.26,0] },
+      sniper:  { ws:0.58, wp:[0.13,-0.34,-1.00], wr:[0.05,Math.PI,0], rh:[0.15,-0.48,-0.62], rr:[0.7,0.18,0.05],  lh:[0.01,-0.43,-1.26], lr:[1.06,-0.24,0] },
       ak:      { ws:0.60, wp:[0.14,-0.33,-0.92], wr:[0.05,Math.PI,0], rh:[0.16,-0.47,-0.56], rr:[0.7,0.18,0.05],  lh:[0.02,-0.42,-1.16], lr:[1.04,-0.26,0] },
       lmg:     { ws:0.56, wp:[0.15,-0.34,-1.00], wr:[0.05,Math.PI,0], rh:[0.17,-0.48,-0.60], rr:[0.7,0.18,0.05],  lh:[0.03,-0.44,-1.26], lr:[1.04,-0.26,0] },
       wonder:  { ws:0.58, wp:[0.14,-0.32,-0.98], wr:[0.05,Math.PI,0], rh:[0.16,-0.47,-0.60], rr:[0.7,0.18,0.05],  lh:[0.02,-0.42,-1.22], lr:[1.04,-0.24,0] },
+      axe:     { ws:0.74, wp:[0.13,-0.30,-0.62], wr:[0.05,Math.PI,0], rh:[0.13,-0.44,-0.46], rr:[0.72,0.12,0.05], lh:[0.02,-0.50,-0.52], lr:[0.82,-0.16,0.1] },
       hells:   { ws:0.74, wp:[0.13,-0.30,-0.62], wr:[0.05,Math.PI,0], rh:[0.13,-0.44,-0.46], rr:[0.72,0.12,0.05], lh:[0.02,-0.50,-0.52], lr:[0.82,-0.16,0.1] }
     };
   }
@@ -277,7 +279,8 @@ class Kit {
     if (id==='doubleshot') { const m=this.makePerkMachine(['DOUBLE','SHOT'],0x9c2b2b,0x35d6ff); m.scale.setScalar(0.58); return { m, y:0.8 }; }
     if (id==='rootbeer') { const m=this.makePerkMachine(['MUG ROOTBEER','METH'],0x6a3b1a,0xffa23a); m.scale.setScalar(0.58); return { m, y:0.8 }; }
     if (id==='pingasliquid') { const m=this.makePerkMachine(['PINGAS','LIQUID'],0x4a2a66,0xff48c0); m.scale.setScalar(0.58); return { m, y:0.8 }; }
-    if (id==='hells') { const m=this.makeWeapon('hells'); m.scale.setScalar(1.7); return { m, y:1.75, hover:true, spin:true }; }
+    if (id==='axe') { const m=this.makeWeapon('axe'); m.scale.setScalar(1.7); return { m, y:1.75, hover:true, spin:true }; }
+    if (id==='hells') { const m=this.makeWeapon('axe'); m.scale.setScalar(1.7); return { m, y:1.75, hover:true, spin:true }; }
     if (id==='werewolf') { const m=this.makeWerewolf(); m.scale.setScalar(0.5); return { m, y:1.4 }; }
     if (id==='egg') { const m=this.makeRoyalEgg(); m.scale.setScalar(0.62); return { m, y:0.8 }; }
     if (id==='megaboss') { const m=this.makeMegaBoss(); m.scale.setScalar(0.42); return { m, y:0.8 }; }
