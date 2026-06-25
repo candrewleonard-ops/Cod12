@@ -1085,6 +1085,7 @@ function loop(){
     if(fpsCounter) fpsTick();
   }
   if(renderer && scene && camera){
+    camera.updateMatrixWorld();  // ensure camera's local space (for arms/weapons) is up to date
     renderer.render(scene,camera);
     if(needShadowBake){ // bake static shadows ONCE, then freeze the shadow map
       shadowLight.shadow.needsUpdate=true; needShadowBake=false;
