@@ -160,6 +160,14 @@ class Kit {
       const grip=this.box(0.1,0.22,0.13, wood); grip.position.set(0,-0.18,-0.16); grip.rotation.x=-0.2; g.add(grip);
       g.add(this.at(this.box(0.09,0.15,0.32, wood), 0,-0.02,0.34));
       g.add(this.at(this.box(0.04,0.1,0.05, dark), 0,0.17,0.2));
+    } else if (type==='sniper') {
+      g.add(this.box(0.08,0.14,1.48, metal));
+      g.add(this.at(this.cyl(0.022,0.022,0.84, metal,'z'), 0,0.03,0.92));
+      g.add(this.at(this.box(0.14,0.08,0.52, dark), 0,0.18,0.24));
+      g.add(this.at(this.box(0.08,0.18,0.38, wood), 0,-0.02,-0.62));
+      const grip=this.box(0.08,0.2,0.12, wood); grip.position.set(0,-0.17,-0.18); grip.rotation.x=-0.2; g.add(grip);
+      g.add(this.at(this.box(0.04,0.1,0.05, dark), 0,0.15,0.2));
+      g.add(this.at(this.cyl(0.035,0.035,0.08, dark,'x'), 0.08,0.24,0.4));
     } else if (type==='lmg') {
       g.add(this.box(0.15,0.21,1.34, metal));
       g.add(this.at(this.cyl(0.036,0.036,0.74, metal,'z'), 0,0.04,0.94));
@@ -186,7 +194,7 @@ class Kit {
       const grip=this.box(0.1,0.24,0.14, body); grip.position.set(0,-0.2,-0.16); grip.rotation.x=-0.18; g.add(grip);
       g.add(this.at(this.box(0.1,0.18,0.44, body), 0,-0.02,-0.62));
       g.userData.muzzle=new THREE.Vector3(0,0.02,1.1);
-    } else if (type==='hells') {
+    } else if (type==='axe' || type==='hells') {
       const blk=this.mat(0x140a0a,0.45,0.65), red=this.glow(0xff2a14,1.9), ember=this.glow(0xff7a1e,1.5), bone=this.mat(0x2a1410,0.6,0);
       g.add(this.box(0.13,0.2,0.62, blk));                                  // frame
       g.add(this.at(this.cyl(0.052,0.052,0.4, blk,'z'), 0,0.04,0.42));      // barrel

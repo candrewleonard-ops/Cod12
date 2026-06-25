@@ -43,6 +43,8 @@ const G = {
   weapons:[], cur:0,
   // perks
   perks:new Set(),
+  // aiming
+  aiming:false, zoomedFov:30,
   // wave director
   budget:0, spawnedThisRound:0, toSpawn:0, aliveCount:0,
   spawnTimer:0, roundActive:false, intermission:0,
@@ -50,7 +52,7 @@ const G = {
   // powerups (timed)
   instaKill:0, doublePts:0, fireRateBuff:0,
   // input
-  keys:{}, mouseDown:false, wantReload:false,
+  keys:{}, mouseDown:false, rightMouseDown:false, wantReload:false,
 };
 window.__G = G;
 
@@ -61,12 +63,13 @@ const WDEF = {
   smg:     { name:'MP-40',        mag:32, reserve:240, rate:13, dmg:26,  auto:true,  reload:1.7, range:80, kind:'ballistic' },
   shotgun: { name:'TRENCH GUN',   mag:6,  reserve:48,  rate:2.2,dmg:30,  auto:false, reload:2.3, range:34, kind:'ballistic', pellets:8, spread:0.13 },
   rifle:   { name:'KAR-98',       mag:5,  reserve:50,  rate:1.6,dmg:160, auto:false, reload:2.0, range:140,kind:'ballistic' },
+  sniper:  { name:'SPRINGFIELD',  mag:3,  reserve:30,  rate:0.8,dmg:240, auto:false, reload:2.4, range:200,kind:'ballistic' },
   ak:      { name:'AK-47',        mag:30, reserve:270, rate:10, dmg:48,  auto:true,  reload:2.0, range:110,kind:'ballistic' },
   lmg:     { name:'SLEDGEHAMMER', mag:75, reserve:300, rate:11, dmg:55,  auto:true,  reload:3.4, range:120,kind:'ballistic' },
   wonder:  { name:'WUNDER-DG2',   mag:20, reserve:120, rate:4,  dmg:240, auto:true,  reload:2.6, range:120,kind:'wonder', aoe:3.0 },
-  hells:   { name:"HELL'S REVOLVER",mag:1,reserve:30,  rate:1,  dmg:900, auto:false, reload:2.2, range:60, kind:'hells', aoe:5.5 },
+  axe:     { name:"RETRIEVER AXE", mag:1,reserve:30,  rate:1,  dmg:900, auto:false, reload:2.2, range:60, kind:'axe', aoe:5.5 },
 };
-const WALL_WEAPONS = ['smg','shotgun','rifle','ak','lmg']; // assignable on walls
+const WALL_WEAPONS = ['smg','shotgun','rifle','sniper','ak','lmg']; // assignable on walls
 
 function newWeapon(type, pap){
   const d = WDEF[type];
@@ -95,8 +98,9 @@ const AU = (() => {
     resume(){ ensure(); if(ac.state==='suspended') ac.resume(); },
     shoot(kind){ ensure(); const t=now();
       if(kind==='shotgun'){ noise(t,0.18,0.5,2600); tone(120,t,0.12,'square',0.25,40); }
+      else if(kind==='sniper'){ noise(t,0.08,0.6,1400); tone(100,t,0.10,'sawtooth',0.35,50); }
       else if(kind==='wonder'){ tone(880,t,0.14,'sawtooth',0.2,220); tone(440,t,0.18,'triangle',0.18,110); }
-      else if(kind==='hells'){ noise(t,0.4,0.5,900); tone(70,t,0.5,'sawtooth',0.4,30); }
+      else if(kind==='axe'){ noise(t,0.4,0.5,900); tone(70,t,0.5,'sawtooth',0.4,30); }
       else { noise(t,0.06,0.35,3200); tone(180,t,0.07,'square',0.22,80); } },
     dry(){ ensure(); tone(900,now(),0.04,'square',0.12); },
     reload(){ ensure(); const t=now(); tone(300,t,0.05,'square',0.2); tone(420,t+0.18,0.05,'square',0.2); tone(520,t+0.42,0.06,'square',0.22); },
@@ -437,7 +441,7 @@ function spawnMegaBoss(){
 
 /* ════════════════════ PLAYER ARMS / WEAPONS ════════════════════ */
 let arms=null, armBaseY=-0.0, recoil=0, muzzle=null, muzzleT=0;
-let hells={phase:'idle', t:0, proj:null};
+let axe={phase:'idle', t:0, proj:null};
 
 function buildPlayerArms(){
   if(arms){ camera.remove(arms); }
@@ -450,7 +454,7 @@ function buildPlayerArms(){
 }
 
 function curW(){ return G.weapons[G.cur]; }
-function swapTo(i){ if(i<0||i>=G.weapons.length||i===G.cur) return; G.cur=i; const w=curW(); w.reloading=false; buildPlayerArms(); updateAmmoHUD(); AU.reload(); hells.phase='idle'; }
+function swapTo(i){ if(i<0||i>=G.weapons.length||i===G.cur) return; G.cur=i; const w=curW(); w.reloading=false; buildPlayerArms(); updateAmmoHUD(); AU.reload(); axe.phase='idle'; }
 function cycleWeapon(dir){ if(G.weapons.length<2) return; swapTo((G.cur+dir+G.weapons.length)%G.weapons.length); }
 
 function giveWeapon(type, pap){
@@ -498,12 +502,12 @@ function fire(){
   if(w.reloading) return;
   const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1);
   if(now - w.lastShot < 1/rate) return;
-  if(w.type==='hells'){ return; } // hells handled by charge system
+  if(w.type==='axe'){ return; } // axe handled by charge system
   if(w.ammo<=0){ AU.dry(); flashReloadHint(); return; }
   w.lastShot=now; w.ammo--; updateAmmoHUD();
   recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2));
   muzzle.intensity=2.4; muzzleT=now;
-  AU.shoot(w.type==='shotgun'?'shotgun': w.type==='wonder'?'wonder': w.type);
+  AU.shoot(w.type==='shotgun'?'shotgun': w.type==='sniper'?'sniper': w.type==='wonder'?'wonder': w.type);
 
   camera.getWorldDirection(_dir);
   const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
@@ -526,6 +530,7 @@ function fire(){
     }
   }
   if(anyHit){ AU.hit(); hitmarker(); }
+  addPoints(10); // additional money per shot fired
 }
 
 /* Wonder weapon bolt pool */
@@ -559,54 +564,54 @@ function wonderBurst(x,y,z,dmg,aoe){
   if(boss&&boss.userData.alive && Math.hypot(boss.position.x-x,boss.position.z-z)<aoe) damageBoss(dmg*0.6);
 }
 
-/* Hells Revolver: hold to charge 3s (freeze at full) → throw up to 12u → AoE → return */
-function updateHells(dt, charging){
-  const w=curW(); if(!w || w.type!=='hells'){ hells.phase='idle'; setCharge(0); return; }
+/* Retriever Axe: hold to charge up to 3s → throw → AoE → return. Release anytime for shorter throw */
+function updateAxe(dt, charging){
+  const w=curW(); if(!w || w.type!=='axe'){ axe.phase='idle'; setCharge(0); return; }
   const held = arms && arms.userData.weapon;
-  if(hells.phase==='idle'){
+  if(axe.phase==='idle'){
     setCharge(0);
-    if(charging && w.ammo>0){ hells.phase='charge'; hells.t=0; }
-  } else if(hells.phase==='charge'){
-    hells.t+=dt; const k=Math.min(1,hells.t/3); setCharge(k);
+    if(charging && w.ammo>0){ axe.phase='charge'; axe.t=0; }
+  } else if(axe.phase==='charge'){
+    axe.t+=dt; const k=Math.min(1,axe.t/3); setCharge(k);
     if(held){ const shake=k<1?(Math.random()-0.5)*0.04*k:0;
       held.position.z = -0.62 + 0.22*k + shake; held.position.x=0.13+shake; held.rotation.x=-0.5*k; }
-    if(!charging){ // released → throw, distance scales with charge
-      if(k>0.15){ throwHells(k); } else { hells.phase='idle'; if(held){held.position.set(0.13,-0.30,-0.62); held.rotation.x=0;} }
-    }
-  } else if(hells.phase==='out' || hells.phase==='back'){
+    if(!charging){ // released → throw, distance scales with charge (allow early release)
+      throwAxe(k); }
+  } else if(axe.phase==='out' || axe.phase==='back'){
     setCharge(0);
-    updateHellsProj(dt);
+    updateAxeProj(dt);
   }
 }
-function throwHells(k){
-  const w=curW(); if(w.ammo<=0){ hells.phase='idle'; return; } w.ammo--; updateAmmoHUD();
-  AU.shoot('hells'); hells.phase='out'; hells.t=0; hells.dist=4+k*12; hells.k=k;
+function throwAxe(k){
+  const w=curW(); if(w.ammo<=0){ axe.phase='idle'; return; } w.ammo--; updateAmmoHUD();
+  AU.shoot('axe'); axe.phase='out'; axe.t=0; axe.dist=2+k*14; axe.k=k;
   if(arms&&arms.userData.weapon) arms.userData.weapon.visible=false;
-  if(!hells.proj){ hells.proj=KIT.makeWeapon('hells',w.pap); hells.proj.scale.setScalar(0.62); scene.add(hells.proj);
-    hells.plight=new T.PointLight(0xff3a14,2,8,2); hells.proj.add(hells.plight); }
-  hells.proj.visible=true;
+  if(!axe.proj){ axe.proj=KIT.makeWeapon('axe',w.pap); axe.proj.scale.setScalar(0.62); scene.add(axe.proj);
+    axe.plight=new T.PointLight(0xff3a14,2,8,2); axe.proj.add(axe.plight); }
+  axe.proj.visible=true;
   camera.getWorldDirection(_dir);
-  hells.from=camera.position.clone();
-  hells.dirv=_dir.clone();
+  axe.from=camera.position.clone();
+  axe.dirv=_dir.clone();
+  addPoints(10); // money for throwing axe
 }
-function updateHellsProj(dt){
-  hells.t+=dt; const p=hells.proj;
+function updateAxeProj(dt){
+  axe.t+=dt; const p=axe.proj;
   p.rotation.x+=14*dt; p.rotation.y+=8*dt;
-  if(hells.phase==='out'){
-    const k=hells.t/0.5; const d=Math.min(1,k)*hells.dist;
-    p.position.copy(hells.from).addScaledVector(hells.dirv, d); p.position.y=1.3;
+  if(axe.phase==='out'){
+    const k=axe.t/0.5; const d=Math.min(1,k)*axe.dist;
+    p.position.copy(axe.from).addScaledVector(axe.dirv, d); p.position.y=1.3;
     if(k>=1){ // detonate
-      const w=curW(); const dmg=WDEF.hells.dmg*(w.pap?2.2:1)*(G.instaKill>0?1000:1);
+      const w=curW(); const dmg=WDEF.axe.dmg*(w.pap?2.2:1)*(G.instaKill>0?1000:1);
       fxExplosion(p.position.x,p.position.y,p.position.z, 0xff4a14, 1.4); AU.explode();
       for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
-        if(Math.hypot(e.grp.position.x-p.position.x,e.grp.position.z-p.position.z)<WDEF.hells.aoe) damageEnemy(e,dmg,false); }
-      if(boss&&boss.userData.alive&&Math.hypot(boss.position.x-p.position.x,boss.position.z-p.position.z)<WDEF.hells.aoe) damageBoss(dmg);
-      if(mega&&mega.userData.alive&&Math.hypot(mega.position.x-p.position.x,mega.position.z-p.position.z)<WDEF.hells.aoe+3) damageMega(dmg);
-      hells.phase='back'; hells.t=0; hells.bfrom=p.position.clone();
+        if(Math.hypot(e.grp.position.x-p.position.x,e.grp.position.z-p.position.z)<WDEF.axe.aoe) damageEnemy(e,dmg,false); }
+      if(boss&&boss.userData.alive&&Math.hypot(boss.position.x-p.position.x,boss.position.z-p.position.z)<WDEF.axe.aoe) damageBoss(dmg);
+      if(mega&&mega.userData.alive&&Math.hypot(mega.position.x-p.position.x,mega.position.z-p.position.z)<WDEF.axe.aoe+3) damageMega(dmg);
+      axe.phase='back'; axe.t=0; axe.bfrom=p.position.clone();
     }
   } else { // back to hand
-    const k=hells.t/0.55; p.position.lerpVectors(hells.bfrom, camera.position, Math.min(1,k)); p.position.y=Math.max(1.0,p.position.y);
-    if(k>=1){ p.visible=false; hells.phase='idle';
+    const k=axe.t/0.55; p.position.lerpVectors(axe.bfrom, camera.position, Math.min(1,k)); p.position.y=Math.max(1.0,p.position.y);
+    if(k>=1){ p.visible=false; axe.phase='idle';
       const held=arms&&arms.userData.weapon; if(held){ held.visible=true; held.position.set(0.13,-0.30,-0.62); held.rotation.x=0; }
       const w=curW(); if(w.ammo<=0 && w.reserve>0) startReload(); }
   }
@@ -708,7 +713,7 @@ function buyWall(wtype,cost){
 }
 function mysteryCrate(){
   if(!spend(950)) return false; AU.buy();
-  const pool=['smg','shotgun','rifle','ak','lmg','wonder','hells'];
+  const pool=['smg','shotgun','rifle','sniper','ak','lmg','wonder','axe'];
   const pick=pool[(Math.random()*pool.length)|0];
   giveWeapon(pick, false); toast(WDEF[pick].name+'!','mystery reward','#ffd23a');
   return true;
@@ -723,10 +728,11 @@ function buyPerk(id,cost,trimHex){
   if(!G.powerOn) return false; if(G.perks.has(id)) return false;
   if(!spend(cost)) return false; AU.powerup();
   G.perks.add(id);
-  if(id==='rootbeer'){ G.maxHealth=200; G.health+=100; }
+  if(id==='juggernaut'){ G.maxHealth*=2; G.health=G.maxHealth; }
+  else if(id==='rootbeer'){ G.maxHealth=200; G.health+=100; }
   updatePerksHUD(); updateHealthHUD(); toast('PERK ACQUIRED', perkName(id), '#'+(trimHex||0x5aa0ff).toString(16)); return true;
 }
-function perkName(id){ return id==='doubleshot'?'DOUBLE SHOT': id==='rootbeer'?'MUG ROOTBEER METH': id==='pingasliquid'?'PINGAS LIQUID':id; }
+function perkName(id){ return id==='doubleshot'?'DOUBLE SHOT': id==='rootbeer'?'MUG ROOTBEER METH': id==='juggernaut'?'JUGGERNAUT': id==='pingasliquid'?'PINGAS LIQUID':id; }
 
 /* ════════════════════ WAVE DIRECTOR ════════════════════ */
 const FINAL_ROUND=12;
@@ -899,7 +905,7 @@ function updatePointsHUD(){ $('points').querySelector('.val').textContent=G.poin
 let popT=0;
 function pointsPop(n){ const el=$('pointsPop'); el.textContent='+'+n; el.style.opacity='1'; el.style.transform='translateY(-6px)'; popT=clock.elapsedTime; }
 function updateAmmoHUD(){ const w=curW(); if(!w) return; const a=$('ammo');
-  a.querySelector('.mag').textContent = w.type==='hells'? (w.ammo?'●':'○') : w.ammo;
+  a.querySelector('.mag').textContent = w.type==='axe'? (w.ammo?'●':'○') : w.ammo;
   a.querySelector('.res').textContent = w.reserve;
   a.classList.toggle('low', w.ammo<=Math.max(1,Math.ceil(w.mag*0.25)));
   $('wname').innerHTML = w.pap? '<span class="pap">'+w.name+'</span>' : w.name;
@@ -910,7 +916,7 @@ function updateRoundHUD(flash){ $('round').querySelector('.num').textContent=G.r
   if(flash){ const r=$('round'); r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash'); } updateZleftHUD(); }
 function updateZleftHUD(){ const left = G.toSpawn + G.aliveCount; $('zleft').innerHTML='UNDEAD&nbsp;&nbsp;<b>'+Math.max(0,left)+'</b>'; }
 function updatePerksHUD(){ const wrap=$('perks'); wrap.innerHTML='';
-  const icons={doubleshot:['DS','#35d6ff'], rootbeer:['JG','#ffa23a'], pingasliquid:['PL','#ff48c0']};
+  const icons={doubleshot:['DS','#35d6ff'], rootbeer:['JG','#ffa23a'], juggernaut:['JUG','#ff6b35'], pingasliquid:['PL','#ff48c0']};
   G.perks.forEach(p=>{ const [t,c]=icons[p]||['?','#fff']; const d=document.createElement('div'); d.className='perk';
     d.style.borderColor=c; d.style.color=c; d.textContent=t; wrap.appendChild(d); }); }
 function renderPrompt(lbl){ const el=$('prompt'); if(!lbl){ el.style.opacity='0'; return; }
@@ -945,8 +951,17 @@ function bindInput(){
     if(e.code==='Space'){ if(G.onGround){ G.vy=8.0; G.onGround=false; } }
   });
   document.addEventListener('keyup', e=>{ G.keys[e.key.toLowerCase()]=false; });
-  document.addEventListener('mousedown', e=>{ if(G.phase!=='play') return; if(e.button===0) G.mouseDown=true; });
-  document.addEventListener('mouseup', e=>{ if(e.button===0) G.mouseDown=false; });
+  document.addEventListener('mousedown', e=>{
+    if(G.phase!=='play') return;
+    if(e.button===0) G.mouseDown=true;
+    else if(e.button===2) G.rightMouseDown=true;
+    e.preventDefault();
+  });
+  document.addEventListener('mouseup', e=>{
+    if(e.button===0) G.mouseDown=false;
+    else if(e.button===2) G.rightMouseDown=false;
+  });
+  document.addEventListener('contextmenu', e=>{ if(G.phase==='play') e.preventDefault(); });
   document.addEventListener('wheel', e=>{ if(G.phase!=='play') return; cycleWeapon(e.deltaY>0?1:-1); }, {passive:true});
   document.addEventListener('mousemove', e=>{ if(G.phase!=='play') return;
     G.yaw   -= e.movementX*0.0022; G.pitch -= e.movementY*0.0022;
@@ -989,6 +1004,18 @@ function winGame(){ G.phase='win'; document.exitPointerLock&&document.exitPointe
 function showScreen(id){ hideAllScreens(); $(id).classList.remove('hidden'); }
 function hideAllScreens(){ ['loading','menu','pause','over','win'].forEach(s=>$(s).classList.add('hidden')); }
 
+/* ════════════════════ CAMERA ZOOM ════════════════════ */
+function updateCameraZoom(){
+  const w=curW();
+  let targetFov=74;
+  if(G.rightMouseDown && w){
+    if(w.type==='sniper') targetFov=30;
+    else if(w.type==='rifle') targetFov=45;
+  }
+  camera.fov+=(targetFov-camera.fov)*0.15;
+  camera.updateProjectionMatrix();
+}
+
 /* ════════════════════ MAIN LOOP (one rAF, fixed timestep) ════════════════════ */
 let acc=0;
 function loop(){
@@ -1005,6 +1032,7 @@ function loop(){
     for(const pl of pointLights){ pl.light.intensity=pl.base+Math.sin(et*11+pl.ph)*0.35+Math.random()*0.12;
       if(pl.flame) pl.flame.scale.y=1+Math.sin(et*10+pl.ph)*0.2; }
     updateFx();
+    updateCameraZoom();
     if(fpsCounter) fpsTick();
   }
   if(renderer && scene && camera){
@@ -1018,7 +1046,7 @@ function loop(){
 function simStep(dt){
   // input → fire
   const w=curW();
-  if(w && w.type==='hells'){ updateHells(dt, G.mouseDown); }
+  if(w && w.type==='axe'){ updateAxe(dt, G.mouseDown); }
   else if(G.mouseDown){ if(w && (WDEF[w.type].auto || canSemi())) fire(); }
   updatePlayer(dt);
   updateReload();
