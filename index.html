@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>UNDEAD SIEGE</title>
+<style>
+  :root{
+    --accent:#5aa0ff; --blood:#9c2b2b; --gold:#ffc24a; --pingas:#ff48c0;
+    --bg:#05080d; --ink:#cfe0ff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--ink);
+    font-family:"Oswald","Bebas Neue",Impact,system-ui,sans-serif; letter-spacing:.5px; cursor:default; -webkit-user-select:none; user-select:none;}
+  #app{position:fixed; inset:0}
+  canvas{display:block; position:absolute; inset:0}
+
+  /* ───────── HUD ───────── */
+  #hud{position:absolute; inset:0; pointer-events:none; z-index:10; opacity:0; transition:opacity .4s}
+  #hud.on{opacity:1}
+
+  /* crosshair */
+  #cross{position:absolute; left:50%; top:50%; width:26px; height:26px; transform:translate(-50%,-50%); opacity:.9}
+  #cross::before,#cross::after,#cross i{position:absolute; background:rgba(220,240,255,.85); box-shadow:0 0 4px rgba(0,0,0,.8)}
+  #cross::before{left:50%; top:0; width:2px; height:9px; transform:translateX(-50%)}
+  #cross::after{left:50%; bottom:0; width:2px; height:9px; transform:translateX(-50%)}
+  #cross i:nth-child(1){left:0; top:50%; height:2px; width:9px; transform:translateY(-50%)}
+  #cross i:nth-child(2){right:0; top:50%; height:2px; width:9px; transform:translateY(-50%)}
+  #cross.hit i, #cross.hit::before, #cross.hit::after{background:#ff5a3a}
+  #hitmark{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) rotate(45deg); width:22px; height:22px; opacity:0}
+  #hitmark span{position:absolute; background:#ff4a3a; width:2px; height:7px}
+  #hitmark span:nth-child(1){left:0;top:0} #hitmark span:nth-child(2){right:0;top:0}
+  #hitmark span:nth-child(3){left:0;bottom:0} #hitmark span:nth-child(4){right:0;bottom:0}
+
+  /* damage vignette */
+  #vignette{position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 1px rgba(0,0,0,0);
+    background:radial-gradient(ellipse at center, transparent 55%, rgba(140,10,10,.0) 100%); transition:background .15s}
+  #lowhp{position:absolute; inset:0; pointer-events:none; opacity:0;
+    background:radial-gradient(ellipse at center, transparent 42%, rgba(150,8,8,.55) 100%)}
+
+  /* bottom-left: health + points */
+  #botL{position:absolute; left:26px; bottom:24px; min-width:240px}
+  .label{font-size:12px; letter-spacing:3px; color:#7f93b3; text-transform:uppercase}
+  #hpbar{width:240px; height:14px; background:rgba(10,16,24,.7); border:1px solid rgba(120,160,210,.35);
+    border-radius:2px; overflow:hidden; margin-top:3px; box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  #hpfill{height:100%; width:100%; background:linear-gradient(90deg,#b8352b,#e8584a); transition:width .12s}
+  #points{font-size:40px; font-weight:700; color:var(--gold); line-height:1; margin-top:12px;
+    text-shadow:0 2px 0 #6b4a10, 0 0 18px rgba(255,194,74,.35)}
+  #points .pre{font-size:20px; opacity:.7; margin-right:3px}
+  #pointsPop{position:absolute; left:0; bottom:78px; font-size:20px; color:#ffe39a; opacity:0; font-weight:700}
+
+  /* bottom-right: weapon + ammo */
+  #botR{position:absolute; right:30px; bottom:24px; text-align:right}
+  #wname{font-size:18px; letter-spacing:2px; color:#bcd4f5; text-transform:uppercase}
+  #wname .pap{color:var(--accent); text-shadow:0 0 12px rgba(90,160,255,.6)}
+  #ammo{font-size:46px; font-weight:700; line-height:1; margin-top:2px}
+  #ammo .mag{color:#eaf2ff} #ammo .sep{color:#5c6f8d; font-size:30px; margin:0 6px}
+  #ammo .res{color:#8aa0c4; font-size:30px}
+  #ammo.low .mag{color:#ff5a3a}
+  #reloadHint{font-size:14px; color:var(--gold); letter-spacing:2px; opacity:0; margin-top:2px}
+  #chargebar{height:5px; width:0; margin-left:auto; margin-top:6px; background:linear-gradient(90deg,#ff7a1e,#ff2a14);
+    box-shadow:0 0 10px rgba(255,80,30,.7); border-radius:3px; transition:width .05s}
+
+  /* top-center: round */
+  #round{position:absolute; left:50%; top:22px; transform:translateX(-50%); text-align:center}
+  #round .num{font-size:54px; font-weight:700; color:var(--blood); line-height:.9;
+    text-shadow:0 0 22px rgba(180,40,40,.55), 0 2px 0 #3a0c0c}
+  #round .lab{font-size:13px; letter-spacing:6px; color:#8a5a5a}
+  #round.flash .num{animation:roundflash 1s ease}
+  @keyframes roundflash{0%{transform:scale(1.6); color:#ff5a3a} 100%{transform:scale(1); color:var(--blood)}}
+
+  /* top-right: perks + zombies left */
+  #topR{position:absolute; right:30px; top:20px; text-align:right}
+  #perks{display:flex; gap:8px; justify-content:flex-end}
+  .perk{width:40px; height:40px; border-radius:50%; border:2px solid rgba(255,255,255,.25);
+    display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700;
+    background:rgba(10,16,24,.6); box-shadow:0 0 14px rgba(0,0,0,.5)}
+  #zleft{margin-top:10px; font-size:14px; letter-spacing:2px; color:#9fb2cf}
+  #zleft b{color:#ff6a5a; font-size:18px}
+
+  /* interaction prompt */
+  #prompt{position:absolute; left:50%; top:58%; transform:translate(-50%,-50%); text-align:center; opacity:0; transition:opacity .12s}
+  #prompt .key{display:inline-block; min-width:30px; padding:4px 9px; border:2px solid var(--accent);
+    border-radius:6px; color:#eaf2ff; font-weight:700; background:rgba(20,40,70,.6); margin-bottom:6px;
+    box-shadow:0 0 14px rgba(90,160,255,.4)}
+  #prompt .txt{font-size:18px; color:#dfeaff; letter-spacing:1px}
+  #prompt .cost{color:var(--gold); font-weight:700}
+  #prompt.cant .key{border-color:#a33; color:#f99}
+  #prompt.cant .cost{color:#ff6a5a}
+
+  /* center toast (round banner / powerups) */
+  #toast{position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); text-align:center;
+    font-size:38px; font-weight:700; letter-spacing:4px; opacity:0; text-transform:uppercase;
+    text-shadow:0 0 26px rgba(0,0,0,.8)}
+  #subtoast{position:absolute; left:50%; top:46%; transform:translate(-50%,-50%); text-align:center;
+    font-size:18px; letter-spacing:3px; color:#bcd4f5; opacity:0}
+
+  /* ───────── MENUS ───────── */
+  .screen{position:absolute; inset:0; z-index:30; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center;
+    background:radial-gradient(ellipse at 50% 35%, rgba(20,28,44,.55), rgba(3,5,9,.92));
+    backdrop-filter:blur(2px)}
+  .hidden{display:none !important}
+  .title{font-size:84px; font-weight:700; letter-spacing:8px; line-height:.92;
+    color:#e8f0ff; text-shadow:0 0 40px rgba(90,160,255,.35)}
+  .title .red{color:var(--blood); text-shadow:0 0 40px rgba(180,40,40,.6)}
+  .subtitle{font-size:16px; letter-spacing:8px; color:#7f93b3; margin-top:6px; text-transform:uppercase}
+  .btn{pointer-events:auto; cursor:pointer; margin-top:18px; min-width:300px; padding:15px 28px;
+    font-family:inherit; font-size:22px; font-weight:700; letter-spacing:3px; text-transform:uppercase;
+    color:#eaf2ff; background:linear-gradient(180deg,rgba(40,60,95,.7),rgba(18,28,46,.85));
+    border:2px solid rgba(120,160,210,.45); border-radius:8px; transition:.12s;
+    box-shadow:0 6px 26px rgba(0,0,0,.5)}
+  .btn:hover{border-color:var(--accent); color:#fff; transform:translateY(-2px); box-shadow:0 10px 30px rgba(90,160,255,.25)}
+  .btn.red{border-color:rgba(180,60,60,.5)} .btn.red:hover{border-color:#e8584a}
+  .hint{margin-top:26px; font-size:13px; letter-spacing:2px; color:#6f819f; max-width:560px; line-height:1.9}
+  .hint b{color:#9fb6db}
+  #gostats{font-size:20px; color:#bcd4f5; margin-top:10px; letter-spacing:2px}
+  #gostats b{color:var(--gold)}
+  .creds{position:absolute; bottom:18px; font-size:11px; letter-spacing:3px; color:#48556e}
+  #loadmsg{font-size:15px; letter-spacing:4px; color:#8a9ec0; margin-top:24px}
+  .spinner{margin-top:16px; width:34px; height:34px; border:3px solid rgba(120,160,210,.25);
+    border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* settings inline */
+  .row{pointer-events:auto; display:flex; gap:14px; align-items:center; margin-top:14px; font-size:15px; letter-spacing:2px; color:#aebfdb}
+  .toggle{cursor:pointer; padding:7px 16px; border:2px solid rgba(120,160,210,.4); border-radius:6px; color:#cfe0ff}
+  .toggle.off{opacity:.5}
+  #fps{position:absolute; left:8px; top:6px; font-size:12px; color:#5fae6a; z-index:20; opacity:.0; font-family:monospace}
+  #fps.on{opacity:.85}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="fps"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="vignette"></div>
+    <div id="lowhp"></div>
+    <div id="cross"><i></i><i></i></div>
+    <div id="hitmark"><span></span><span></span><span></span><span></span></div>
+
+    <div id="round"><div class="num">1</div><div class="lab">ROUND</div></div>
+
+    <div id="topR">
+      <div id="perks"></div>
+      <div id="zleft">UNDEAD&nbsp;&nbsp;<b>0</b></div>
+    </div>
+
+    <div id="botL">
+      <div class="label">Vitality</div>
+      <div id="hpbar"><div id="hpfill"></div></div>
+      <div id="points"><span class="pre">$</span><span class="val">500</span></div>
+      <div id="pointsPop">+0</div>
+    </div>
+
+    <div id="botR">
+      <div id="wname">PISTOL</div>
+      <div id="ammo"><span class="mag">8</span><span class="sep">/</span><span class="res">64</span></div>
+      <div id="reloadHint">RELOAD — R</div>
+      <div id="chargebar"></div>
+    </div>
+
+    <div id="prompt"><span class="key">F</span><div class="txt"></div></div>
+    <div id="toast"></div>
+    <div id="subtoast"></div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading" class="screen">
+    <div class="title">UNDEAD <span class="red">SIEGE</span></div>
+    <div class="subtitle">Nacht-Style Wave Survival</div>
+    <div id="loadmsg">FORGING THE ARENA…</div>
+    <div class="spinner"></div>
+  </div>
+
+  <!-- MAIN MENU -->
+  <div id="menu" class="screen hidden">
+    <div class="title">UNDEAD <span class="red">SIEGE</span></div>
+    <div class="subtitle">Survive · Spend · Ascend the Tower</div>
+    <button class="btn" id="playBtn">BEGIN THE SIEGE</button>
+    <div class="row">
+      <span>SHADOWS</span><span class="toggle" id="tgShadow" data-on="1">ON</span>
+      <span>QUALITY</span><span class="toggle" id="tgQual" data-on="1">HIGH</span>
+      <span>FPS</span><span class="toggle off" id="tgFps" data-on="0">OFF</span>
+    </div>
+    <div class="hint">
+      <b>WASD</b> move · <b>MOUSE</b> look · <b>SHIFT</b> sprint · <b>SPACE</b> jump · <b>L-CLICK</b> fire<br>
+      <b>R</b> reload · <b>G</b> grenade · <b>F</b> interact / buy · <b>1·2</b> or <b>Q</b> swap · <b>ESC</b> pause<br>
+      Buy walls &amp; the Mystery Crate · open gates outward · Pack-a-Pingas your gun · climb the tower to the <b>Mega Pingas Boss</b>.
+    </div>
+    <div class="creds">A PROCEDURAL THREE.JS SIEGE</div>
+  </div>
+
+  <!-- PAUSE -->
+  <div id="pause" class="screen hidden">
+    <div class="title" style="font-size:60px">PAUSED</div>
+    <button class="btn" id="resumeBtn">RESUME</button>
+    <button class="btn red" id="quitBtn">ABANDON RUN</button>
+    <div class="row">
+      <span>SHADOWS</span><span class="toggle" id="tgShadow2" data-on="1">ON</span>
+      <span>FPS</span><span class="toggle off" id="tgFps2" data-on="0">OFF</span>
+    </div>
+    <div class="hint">Click RESUME to re-lock the mouse.</div>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="over" class="screen hidden">
+    <div class="title" style="font-size:64px"><span class="red">YOU DIED</span></div>
+    <div id="gostats">Reached round <b class="r">1</b> · <b class="k">0</b> kills · <b class="s">0</b> points</div>
+    <button class="btn" id="againBtn">FIGHT AGAIN</button>
+    <div class="hint">The undead always win eventually. How long can you last?</div>
+  </div>
+
+  <!-- WIN -->
+  <div id="win" class="screen hidden">
+    <div class="title" style="font-size:60px"><span style="color:var(--pingas)">PINGAS</span> SLAIN</div>
+    <div id="gostats">You toppled the Mega Pingas Boss and survived the siege.</div>
+    <button class="btn" id="winAgainBtn">SIEGE AGAIN</button>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="resources.js"></script>
+<script src="models.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
