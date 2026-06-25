@@ -539,6 +539,17 @@ function buildStations(){
     addInteractable({group:g, x:0, z:9, radius:3.4, type:'pap', cost:5000,
       label:()=> onRoof()?{key:'F', txt:'Pack-a-Pingas', cost:5000}:null,
       run:()=> onRoof() && packAPunch(), anim:g.userData.update }); }
+  // ROOF EGG ALTAR — pay to FORM the Royal Egg; it hatches into the Mega Pingas Boss (health bar)
+  { const ex=-22, ez=0;
+    const altar=KIT.box(4,1.2,4, KIT.mat(0x2a1a3a,0.8,0.2)); altar.position.set(ex,roofY+0.2,ez); scene.add(altar);
+    const orb=new T.Mesh(new T.SphereGeometry(0.6,12,12), KIT.glow(0xff48c0,1.8)); orb.position.set(ex,roofY+1.6,ez); scene.add(orb);
+    const al=new T.PointLight(0xff48c0,1.6,18,2); al.position.set(ex,roofY+2.4,ez); scene.add(al);
+    addInteractable({ x:ex, z:ez, radius:4.5, type:'eggaltar', cost:8000,
+      label:()=>{ if(!onRoof()) return null; if(G.megaActive) return null;
+        if(G.megaDefeated) return {key:'F', txt:'The egg lies shattered', cost:0, cant:true};
+        return {key:'F', txt:'Form the Royal Egg', cost:8000}; },
+      run:()=>{ if(!onRoof()||G.megaActive||G.megaDefeated) return false; if(!spend(8000)) return false;
+        spawnMegaBoss(ex, ez+6, roofY); return true; } }); }
 
   // BOSS YARD (north, deg 270): wall-buys + mini-boss spawns here
   { const [x,z]=pos(270); addFireLight(x,z+8);
@@ -707,10 +718,11 @@ function spawnMiniBoss(){
   AU.round(); toast('HEAVY INCOMING','a brute stalks the boss yard');
 }
 
-function spawnMegaBoss(){
+function spawnMegaBoss(px, pz, py){
   if(!mega){ mega=KIT.makeRoyalEgg(); mega.scale.setScalar(3.0); scene.add(mega); }
-  const yd=G.bossYard||{x:0,z:-52};
-  mega.position.set(yd.x,4.2,yd.z); mega.visible=true;
+  const yd = (px!=null)? {x:px,z:pz} : (G.bossYard||{x:0,z:-52});
+  G.megaY = py||0;
+  mega.position.set(yd.x, G.megaY+4.2, yd.z); mega.visible=true;
   mega.userData.hp = 14000; mega.userData.maxhp=14000; mega.userData.alive=true; mega.userData.hatch=0;
   mega.userData.speed=1.4; mega.userData.atkCd=0;
   G.megaActive=true;
@@ -914,7 +926,8 @@ function damageBoss(dmg){ if(!boss||!boss.userData.alive) return; boss.userData.
     addPoints(800); toast('BRUTE DOWN','+800'); spawnDrop(boss.position.x,boss.position.z); checkRoundProgress(); } }
 function damageMega(dmg){ if(!mega||!mega.userData.alive) return; mega.userData.hp-=dmg;
   const hp=mega.userData.hp;
-  if(hp<=0){ mega.userData.alive=false; mega.visible=false; G.megaActive=false; winGame(); } }
+  if(hp<=0){ mega.userData.alive=false; mega.visible=false; G.megaActive=false; G.megaDefeated=true;
+    updateBossBar(); winGame(); } }
 
 const drops=[]; // {grp, kind, t, x, z}
 const DROP_KINDS=['instakill','maxammo','doublepts','nuke','chips'];
@@ -1138,13 +1151,17 @@ function updateEnemies(dt){
   }
   // mega boss (egg → hatch → chase)
   if(mega && mega.userData.alive){
+    const megaY=G.megaY||0;
     mega.userData.hatch += dt*0.12;
     if(mega.userData.update) mega.userData.update(et);
     if(mega.userData.hatch>1.2){
       const dx=px-mega.position.x, dz=pz-mega.position.z, dist=Math.hypot(dx,dz);
       mega.rotation.y=Math.atan2(dx,dz);
-      if(dist>8){ const sp=mega.userData.speed*dt; mega.position.x+=dx/dist*sp; mega.position.z+=dz/dist*sp; }
-      else { mega.userData.atkCd-=dt; if(mega.userData.atkCd<=0){ mega.userData.atkCd=1.6; hurtPlayer(45); } }
+      if(dist>8){ const sp=mega.userData.speed*dt; let nx=mega.position.x+dx/dist*sp, nz=mega.position.z+dz/dist*sp;
+        if(megaY>10){ const c=clampEnemy(nx,nz,2.5,'roof'); nx=c.x; nz=c.z; }   // keep it on the roof deck
+        mega.position.x=nx; mega.position.z=nz; }
+      else if(Math.abs(megaY-((G.eyeY||EYE)-EYE))<6){ mega.userData.atkCd-=dt; if(mega.userData.atkCd<=0){ mega.userData.atkCd=1.6; hurtPlayer(45); } }
+      mega.position.y=megaY+ (mega.userData.hatch<2? (2-mega.userData.hatch)*4.2 : 0);  // settle from the egg onto the deck
     }
   }
 }
@@ -1249,6 +1266,15 @@ function updateNadeHUD(){ /* could show nades; folded into wname for brevity */ 
 function updateRoundHUD(flash){ $('round').querySelector('.num').textContent=G.round;
   if(flash){ const r=$('round'); r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash'); } updateZleftHUD(); }
 function updateZleftHUD(){ const left = G.toSpawn + G.aliveCount; $('zleft').innerHTML='UNDEAD&nbsp;&nbsp;<b>'+Math.max(0,left)+'</b>'; }
+function updateBossBar(){
+  const bar=$('bossbar'); if(!bar) return;
+  let active=null, name='';
+  if(mega && mega.userData.alive){ active=mega.userData; name='MEGA PINGAS BOSS'; }
+  else if(boss && boss.userData.alive){ active=boss.userData; name='BRUTE'; }
+  if(active){ bar.classList.remove('hidden'); $('bossname').textContent=name;
+    const p=Math.max(0,Math.min(1, active.hp/active.maxhp)); $('bosshpfill').style.width=(p*100)+'%';
+  } else bar.classList.add('hidden');
+}
 function updatePerksHUD(){ const wrap=$('perks'); wrap.innerHTML='';
   const icons={doubleshot:['DS','#35d6ff'], rootbeer:['JG','#ffa23a'], juggernaut:['JUG','#ff6b35'], pingasliquid:['PL','#ff48c0']};
   G.perks.forEach(p=>{ const [t,c]=icons[p]||['?','#fff']; const d=document.createElement('div'); d.className='perk';
@@ -1325,7 +1351,8 @@ function resetRun(){
   if(mega){ mega.userData.alive=false; mega.visible=false; }
   for(const d of drops){ scene.remove(d.grp); } drops.length=0;
   for(const n of nades){ scene.remove(n.grp); } nades.length=0;
-  G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.roundActive=false; G.intermission=0;
+  G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
+  { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
@@ -1387,6 +1414,7 @@ function loop(){
       if(pl.flame) pl.flame.scale.y=1+Math.sin(et*10+pl.ph)*0.2; }
     for(const dog of wallDogs){ if(dog.ud.update) dog.ud.update(et); }
     updateFx();
+    updateBossBar();
     updateCameraZoom();
     if(fpsCounter) fpsTick();
   }
@@ -1489,6 +1517,8 @@ window.__roofOpen=()=>roofOpen;
 window.__stairGates=()=>stairGates;
 window.__wallDogs=()=>wallDogs;
 window.__feedDogs=(x,z,zone)=>feedDogs(x,z,zone);
+window.__updateBossBar=()=>updateBossBar();
+window.__damageMega=(d)=>damageMega(d);
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
   let n=0; while(G.aliveCount<MAX_Z && n<MAX_Z){ if(!spawnZombie(n%4===0)) break; G.toSpawn=Math.max(0,G.toSpawn-1); n++; } return G.aliveCount; };
 window.__fireTest=()=>{ // aim at an alive enemy and confirm hitscan kills + awards points

@@ -68,6 +68,11 @@
   #round .lab{font-size:13px; letter-spacing:6px; color:#8a5a5a}
   #round.flash .num{animation:roundflash 1s ease}
   @keyframes roundflash{0%{transform:scale(1.6); color:#ff5a3a} 100%{transform:scale(1); color:var(--blood)}}
+  #bossbar{position:absolute; left:50%; top:96px; transform:translateX(-50%); width:46%; max-width:620px; text-align:center; transition:opacity .3s}
+  #bossbar.hidden{opacity:0; pointer-events:none}
+  #bossname{font-size:15px; letter-spacing:5px; color:#ff7ad0; text-shadow:0 0 14px rgba(255,72,192,.6); margin-bottom:5px; font-weight:700}
+  #bosshpwrap{height:13px; background:rgba(10,6,14,.7); border:1px solid rgba(255,72,192,.5); border-radius:7px; overflow:hidden; box-shadow:0 0 18px rgba(255,72,192,.3)}
+  #bosshpfill{height:100%; width:100%; background:linear-gradient(90deg,#ff48c0,#ff8a3a); transition:width .12s linear}
 
   /* top-right: perks + zombies left */
   #topR{position:absolute; right:30px; top:20px; text-align:right}
@@ -142,6 +147,11 @@
     <div id="hitmark"><span></span><span></span><span></span><span></span></div>
 
     <div id="round"><div class="num">1</div><div class="lab">ROUND</div></div>
+
+    <div id="bossbar" class="hidden">
+      <div id="bossname">MEGA PINGAS BOSS</div>
+      <div id="bosshpwrap"><div id="bosshpfill"></div></div>
+    </div>
 
     <div id="topR">
       <div id="perks"></div>
