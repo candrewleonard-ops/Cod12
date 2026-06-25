@@ -43,7 +43,7 @@ const G = {
   points:500,
   powerOn:false,
   // player
-  health:100, maxHealth:100, vy:0, onGround:true, footY:0,
+  health:100, maxHealth:100, vy:0, onGround:true, footY:0, eyeY:EYE,
   hurtT:-9, regenT:0, lastDmg:-9,
   yaw:0, pitch:0,
   // weapons
@@ -1030,14 +1030,18 @@ function updatePlayer(dt){
   const ml=Math.hypot(mx,mz); if(ml>0){ mx/=ml; mz/=ml; }
   const nx=camera.position.x + mx*baseSpeed*dt;
   const nz=camera.position.z + mz*baseSpeed*dt;
-  const c=clampArena(nx,nz,PLAYER_R,true,camera.position.y); camera.position.x=c.x; camera.position.z=c.z;
-  // gravity / jump with height-field floor (ground, spiral stairs, or roof deck)
+  const c=clampArena(nx,nz,PLAYER_R,true,G.eyeY); camera.position.x=c.x; camera.position.z=c.z;
+  // gravity / jump with height-field floor (ground, spiral stairs, or roof deck).
+  // Physics runs on G.eyeY (the TRUE eye height, no bob) so head-bob never feeds back into
+  // the ground check — that feedback used to make the view micro-bounce while walking.
   const gh=groundHeightAt(camera.position.x, camera.position.z, G.footY||0);
   const floorY=gh+EYE;
-  G.vy-=GRAV*dt; camera.position.y+=G.vy*dt;
-  if(camera.position.y<=floorY){ camera.position.y=floorY; G.vy=0; G.onGround=true; G.footY=gh; } else G.onGround=false;
-  // head bob
-  if(ml>0 && G.onGround){ const bob=Math.sin(clock.elapsedTime*(sprint?16:11))*(sprint?0.06:0.04); camera.position.y+=bob; }
+  G.vy-=GRAV*dt; G.eyeY+=G.vy*dt;
+  if(G.eyeY<=floorY){ G.eyeY=floorY; G.vy=0; G.onGround=true; G.footY=gh; } else G.onGround=false;
+  // head bob is a VISUAL offset only — applied to the camera, never to the physics height
+  let bob=0;
+  if(ml>0 && G.onGround) bob=Math.sin(clock.elapsedTime*(sprint?16:11))*(sprint?0.05:0.035);
+  camera.position.y = G.eyeY + bob;
   // health regen
   if(clock.elapsedTime - G.lastDmg > 4 && G.health<G.maxHealth){ G.health=Math.min(G.maxHealth, G.health+30*dt); updateHealthHUD(); }
   // arms recoil/sway recover
@@ -1071,6 +1075,7 @@ function updateReload(){
 
 /* ════════════════════ INTERACTION ════════════════════ */
 let nearInteract=null;
+let _justLocked=false;   // guards the first mouse delta after pointer-lock (prevents view snap)
 function updateInteraction(){
   const px=camera.position.x, pz=camera.position.z; let found=null, fd=99;
   for(const it of interactables){ const d=Math.hypot(px-it.x, pz-it.z);
@@ -1146,13 +1151,22 @@ function bindInput(){
   document.addEventListener('contextmenu', e=>{ if(G.phase==='play') e.preventDefault(); });
   document.addEventListener('wheel', e=>{ if(G.phase!=='play') return; cycleWeapon(e.deltaY>0?1:-1); }, {passive:true});
   document.addEventListener('mousemove', e=>{ if(G.phase!=='play') return;
+    // Skip the first event right after (re)acquiring pointer lock — browsers can report a
+    // huge accumulated delta here, which used to snap the view ~90°.
+    if(_justLocked){ _justLocked=false; return; }
+    let mx=e.movementX||0, my=e.movementY||0;
+    // Clamp implausibly large single-event deltas (pointer-lock spikes) so the view never jumps.
+    const MAXD=180;
+    if(mx> MAXD) mx= MAXD; else if(mx<-MAXD) mx=-MAXD;
+    if(my> MAXD) my= MAXD; else if(my<-MAXD) my=-MAXD;
     // aiming down sights slows the turn rate for fine control
     const sens = G.sens * (G.rightMouseDown ? 0.5 : 1);
-    G.yaw   -= e.movementX*sens; G.pitch -= e.movementY*sens;
+    G.yaw   -= mx*sens; G.pitch -= my*sens;
     G.pitch = Math.max(-1.4, Math.min(1.4, G.pitch));
     camera.rotation.order='YXZ'; camera.rotation.y=G.yaw; camera.rotation.x=G.pitch; });
   document.addEventListener('pointerlockchange', ()=>{
-    if(!document.pointerLockElement && G.phase==='play'){ pauseGame(); } });
+    if(document.pointerLockElement){ _justLocked=true; }      // just locked → ignore the first delta
+    else if(G.phase==='play'){ pauseGame(); } });
 }
 function lockMouse(){ renderer.domElement.requestPointerLock&&renderer.domElement.requestPointerLock(); }
 
@@ -1173,7 +1187,7 @@ function resetRun(){
   if(G.spawnPoints) for(const sp of G.spawnPoints) sp.locked = angDist(sp.deg,90)>52;
   for(const it of interactables){ if(it.type==='gate'){ it.open=false; it.anim=0;
     for(const pk of it.planks){ pk.mesh.visible=true; pk.mesh.position.y=pk.cy; pk.mesh.rotation.z=pk.cr; } } }
-  camera.position.set(pos(90)[0], EYE, pos(90)[1]-3); G.yaw=Math.PI; G.pitch=0;
+  camera.position.set(pos(90)[0], EYE, pos(90)[1]-3); G.yaw=Math.PI; G.pitch=0; G.eyeY=EYE; G.vy=0;
   camera.rotation.order='YXZ'; camera.rotation.set(0,G.yaw,0);
   buildPlayerArms(); updateHealthHUD(); updatePointsHUD(); updateAmmoHUD(); updatePerksHUD(); updateZleftHUD();
 }
@@ -1316,6 +1330,7 @@ window.__camera=()=>camera;
 window.__groundHeightAt=(x,z,refY)=>groundHeightAt(x,z,refY);
 window.__zombies=()=>zombies;
 window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);
+window.__step=(dt)=>simStep(dt||1/60);
 window.__interactables=()=>interactables;
 window.__doorOpen=()=>doorOpen;
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
