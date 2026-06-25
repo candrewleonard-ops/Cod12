@@ -234,6 +234,8 @@ function buildTower(){
 }
 
 let roofBarrier=null, roofOpen=false; // barrier at the top of the stairs → roof deck
+const stairGates=[];                   // barricades partway up the spiral {h, a, cleared, grp}
+function climbCap(){ let c=Infinity; for(const g of stairGates){ if(!g.cleared && g.h<c) c=g.h; } return c; }
 
 function buildTowerInterior(){
   // INTERIOR: ground floor, central column, walkable spiral staircase, roof deck + barrier.
@@ -267,6 +269,28 @@ function buildTowerInterior(){
     } }
   steps.castShadow=steps.receiveShadow=true; scene.add(steps);
   posts.castShadow=true; scene.add(posts);
+
+  // STAIRCASE BARRICADES — block the climb partway up until you pay to clear them.
+  stairGates.length=0;
+  [[STAIR_TOP*0.34, 1500],[STAIR_TOP*0.67, 2500]].forEach(([h,cost],gi)=>{
+    const a=(h/STAIR_PITCH)*Math.PI*2;                  // helix angle at this height
+    const cx=Math.cos(a)*STAIR_RMID, cz=Math.sin(a)*STAIR_RMID;
+    const grp=new T.Group(); grp.position.set(cx,h,cz); grp.rotation.y=-a;
+    const pm=new T.MeshStandardMaterial({color:0x5a3a1f,roughness:0.85});
+    for(let i=0;i<4;i++){ const plank=new T.Mesh(new T.BoxGeometry(STAIR_ROUT-STAIR_RIN,0.3,0.22),pm);
+      plank.position.set(0,0.5+i*0.6,0); plank.rotation.z=(i%2?1:-1)*0.05; grp.add(plank); }
+    [-1,1].forEach(s=> grp.add(KIT.at(new T.Mesh(new T.BoxGeometry(0.25,2.4,0.25),pm),s*(STAIR_ROUT-STAIR_RIN)/2,1.2,0)));
+    grp.add(KIT.at(new T.Mesh(new T.PlaneGeometry(2.2,0.6),
+      new T.MeshBasicMaterial({map:KIT.label('$'+cost,'#ffe9a0'),transparent:true,side:T.DoubleSide})),0,2.9,0));
+    scene.add(grp);
+    const gate={h, a, cx, cz, cost, cleared:false, grp};
+    stairGates.push(gate);
+    addInteractable({ x:cx, z:cz, radius:4, type:'stairgate', cost, gate,
+      label:()=>{ if(gate.cleared) return null; if(Math.abs((G.eyeY||0)-(h+EYE))>3) return null;
+        return {key:'F', txt:'Clear Stair Barricade', cost}; },
+      run:()=>{ if(gate.cleared) return false; if(Math.abs((G.eyeY||0)-(h+EYE))>3) return false;
+        if(!spend(cost)) return false; gate.cleared=true; if(gate.grp) gate.grp.visible=false; AU.buy(); toast('STAIRWAY CLEARED','climb higher'); return true; } });
+  });
 
   // ROOF DECK — a RING (flat roof with a central stairwell HOLE) so you climb up through it
   // and walk back down the same way. Top surface at STAIR_TOP+0.5 = the height-field roof level.
@@ -333,6 +357,18 @@ function groundHeightAt(x,z, refY){
   // roof deck is a RING around the central stairwell hole (r in [STAIR_ROUT, TOWER_H-1]);
   // the hole itself (r<STAIR_ROUT) stays open so the stairs emerge through it
   if(r>=STAIR_ROUT && r<=TOWER_H-1){ const h=STAIR_TOP+0.5; if(h<=cap && h>best) best=h; }
+  // uncleared staircase barricades cap how high you can climb
+  const cc=climbCap(); if(best>cc) best=cc;
+  return best;
+}
+// raw spiral height at (x,z) nearest refY (ignores barricade cap) — used to block stepping past a gate
+function spiralHeightAt(x,z, refY){
+  const r=Math.hypot(x,z); if(r<STAIR_RIN||r>STAIR_ROUT) return 0;
+  refY=refY||0; const cap=refY+STEP_UP; let best=0;
+  let th=Math.atan2(z,x); if(th<0) th+=Math.PI*2;
+  const maxK=Math.ceil(STAIR_TURNS)+1;
+  for(let k=0;k<=maxK;k++){ const h=((th+k*Math.PI*2)/(Math.PI*2))*STAIR_PITCH;
+    if(h>STAIR_TOP+0.5) break; if(h<=cap && h>best) best=h; }
   return best;
 }
 
@@ -518,6 +554,8 @@ function addGate(deg,price){
     label:()=> gate.open?null:{key:'F', txt:'Clear Barricade', cost:price},
     run:()=>{ if(gate.open) return false; if(!spend(price)) return false; gate.open=true; gate.anim=0.0001; AU.buy();
       unlockSpawnsNear(deg); toast('PATH CLEARED','new spawn ground opened'); return true; } });
+  // physical block so the player can't walk through until it's cleared (removed on open)
+  colliders.push({x, z, r:3.0, gate});
   return gate;
 }
 
@@ -969,8 +1007,9 @@ function clampArena(x,z, rad, isPlayer, playerY){
       if(dx<dz) x=(x<0?-h:h); else z=(z<0?-h:h);
     }
   }
-  // prop colliders
+  // prop colliders (gate colliders disappear once the gate is opened)
   for(let i=0;i<colliders.length;i++){ const c=colliders[i];
+    if(c.gate && c.gate.open) continue;
     const ddx=x-c.x, ddz=z-c.z, dd=Math.hypot(ddx,ddz), min=c.r+rad;
     if(dd<min && dd>0.0001){ x=c.x+ddx/dd*min; z=c.z+ddz/dd*min; } }
   _v3.set(x,0,z); return _v3;
@@ -1034,9 +1073,15 @@ function updatePlayer(dt){
   if(G.keys['a']){ mx-=_right.x; mz-=_right.z; }
   if(G.keys['d']){ mx+=_right.x; mz+=_right.z; }
   const ml=Math.hypot(mx,mz); if(ml>0){ mx/=ml; mz/=ml; }
-  const nx=camera.position.x + mx*baseSpeed*dt;
-  const nz=camera.position.z + mz*baseSpeed*dt;
+  const oldx=camera.position.x, oldz=camera.position.z;
+  const nx=oldx + mx*baseSpeed*dt;
+  const nz=oldz + mz*baseSpeed*dt;
   const c=clampArena(nx,nz,PLAYER_R,true,G.eyeY); camera.position.x=c.x; camera.position.z=c.z;
+  // staircase barricade: refuse a step that would climb past an uncleared gate
+  const cc=climbCap();
+  if(cc<Infinity && spiralHeightAt(camera.position.x,camera.position.z,G.footY||0) > cc+0.6){
+    camera.position.x=oldx; camera.position.z=oldz;
+  }
   // gravity / jump with height-field floor (ground, spiral stairs, or roof deck).
   // Physics runs on G.eyeY (the TRUE eye height, no bob) so head-bob never feeds back into
   // the ground check — that feedback used to make the view micro-bounce while walking.
@@ -1189,6 +1234,7 @@ function resetRun(){
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
   if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=0; }
+  for(const g of stairGates){ g.cleared=false; if(g.grp) g.grp.visible=true; }
   // re-lock spawn points except the starting hub arc; re-close all gates
   if(G.spawnPoints) for(const sp of G.spawnPoints) sp.locked = angDist(sp.deg,90)>52;
   for(const it of interactables){ if(it.type==='gate'){ it.open=false; it.anim=0;
@@ -1342,6 +1388,7 @@ window.__step=(dt)=>simStep(dt||1/60);
 window.__interactables=()=>interactables;
 window.__doorOpen=()=>doorOpen;
 window.__roofOpen=()=>roofOpen;
+window.__stairGates=()=>stairGates;
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
   let n=0; while(G.aliveCount<MAX_Z && n<MAX_Z){ if(!spawnZombie(n%4===0)) break; G.toSpawn=Math.max(0,G.toSpawn-1); n++; } return G.aliveCount; };
 window.__fireTest=()=>{ // aim at an alive enemy and confirm hitscan kills + awards points
