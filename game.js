@@ -219,8 +219,8 @@ function buildTower(){
   [[BH,BH],[-BH,BH],[BH,-BH],[-BH,-BH]].forEach(p=>{ const pil=new T.Mesh(new T.BoxGeometry(2.4,H,2.4),trimMat); pil.position.set(p[0],H/2,p[1]); pil.castShadow=true; scene.add(pil); });
   [[0,BH],[0,-BH]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(BH*2+2,1.6,2.2),trimMat); pr.position.set(p[0],H+0.6,p[1]); scene.add(pr); });
   [[BH,0],[-BH,0]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(2.2,1.6,BH*2+2),trimMat); pr.position.set(p[0],H+0.6,p[1]); scene.add(pr); });
-  const roofCap=new T.Mesh(new T.BoxGeometry(BH*2+1,0.6,BH*2+1), new T.MeshStandardMaterial({color:0x191d22,roughness:0.95}));
-  roofCap.position.set(0,H+0.1,0); roofCap.receiveShadow=true; scene.add(roofCap);
+  // NOTE: the solid roof slab is gone — the walkable roof (with a central stairwell hole)
+  // is built in buildTowerInterior() so you can climb up through it and back down.
   // glowing doorway frame + steps
   scene.add(KIT.at(KIT.box(DOORW+0.6,0.4,3,KIT.glow(KIT.accentHex,0.5)),0,0.2,BH+1.6));
   [0,1,2].forEach(i=> scene.add(KIT.at(KIT.box(DOORW+2-i*0.6,0.4,1.0,KIT.mat(0x20242a,0.9,0)),0,0.2,BH+2.4+i*1.0)));
@@ -268,10 +268,12 @@ function buildTowerInterior(){
   steps.castShadow=steps.receiveShadow=true; scene.add(steps);
   posts.castShadow=true; scene.add(posts);
 
-  // ROOF DECK platform at the top of the climb (top surface at STAIR_TOP+0.5 = height-field floor)
-  const roof=new T.Mesh(new T.CylinderGeometry(BH-1,BH-1,1.0,24),floorMat);
-  roof.position.set(0,STAIR_TOP,0); roof.receiveShadow=true; roof.castShadow=true; scene.add(roof);
-  // roof parapet rails (waist-high, four sides)
+  // ROOF DECK — a RING (flat roof with a central stairwell HOLE) so you climb up through it
+  // and walk back down the same way. Top surface at STAIR_TOP+0.5 = the height-field roof level.
+  const deckMat=new T.MeshStandardMaterial({color:0x2a2e32,roughness:0.97,side:T.DoubleSide});
+  const deck=new T.Mesh(new T.RingGeometry(STAIR_ROUT, BH-1, 40), deckMat);
+  deck.rotation.x=-Math.PI/2; deck.position.y=STAIR_TOP+0.5; deck.receiveShadow=true; scene.add(deck);
+  // parapet rails around the OUTER edge (waist-high, four sides)
   const railGeo=new T.BoxGeometry((BH-1)*1.6,1.0,0.3);
   [0,Math.PI/2,Math.PI,Math.PI*1.5].forEach(a=>{
     const rail=new T.Mesh(railGeo,wallMat);
@@ -287,22 +289,25 @@ function buildTowerInterior(){
     const bulb=new T.Mesh(new T.SphereGeometry(0.3,8,8),lampMat); bulb.position.set(p[0],p[1],p[2]); scene.add(bulb);
   });
 
-  // BARRIER at the top of the stairs (blocks the last step onto the roof until cleared).
-  // The stairs top out near angle π → world position (-STAIR_RMID, 0).
-  const btx=-STAIR_RMID, btz=0;
-  const bgrp=new T.Group(); bgrp.position.set(btx,STAIR_TOP,btz);
-  for(let i=0;i<4;i++){ const plank=new T.Mesh(new T.BoxGeometry(0.24,0.32,STAIR_ROUT-STAIR_RIN+2),
-      new T.MeshStandardMaterial({color:0x4a3525,roughness:0.85}));
-    plank.position.set(0,0.4+i*0.55,0); plank.rotation.x=(i%2?1:-1)*0.05; bgrp.add(plank); }
-  bgrp.add(KIT.at(new T.Mesh(new T.PlaneGeometry(2.4,0.6),
-    new T.MeshBasicMaterial({map:KIT.label('ROOF 3000','#ffe9a0'),transparent:true})),0,2.6,0));
+  // ROOF BARRICADE — a fence ringing the hole rim. Blocks you from stepping out onto the roof
+  // (enforced by clampArena) until you pay; then it drops away, revealing the open hole.
+  const bgrp=new T.Group();   // pivots from y=0; whole fence sits at the rim
+  const barMat=new T.MeshStandardMaterial({color:0x4a3525,roughness:0.85});
+  const NB=22;
+  for(let i=0;i<NB;i++){ const a=i/NB*Math.PI*2;
+    const bar=new T.Mesh(new T.BoxGeometry(0.2,2.0,0.2),barMat);
+    bar.position.set(Math.cos(a)*(STAIR_ROUT+0.1),STAIR_TOP+1.0,Math.sin(a)*(STAIR_ROUT+0.1)); bgrp.add(bar);
+    if(i%2===0){ const rail=new T.Mesh(new T.BoxGeometry(0.12,0.12,2*Math.PI*STAIR_ROUT/NB*1.05),barMat);
+      rail.position.set(Math.cos(a)*(STAIR_ROUT+0.1),STAIR_TOP+1.6,Math.sin(a)*(STAIR_ROUT+0.1)); rail.rotation.y=-a; bgrp.add(rail); } }
+  bgrp.add(KIT.at(new T.Mesh(new T.PlaneGeometry(3.4,0.8),
+    new T.MeshBasicMaterial({map:KIT.label('ROOF 3000','#ffe9a0'),transparent:true,side:T.DoubleSide})),0,STAIR_TOP+2.6,STAIR_ROUT+0.2));
   scene.add(bgrp); roofBarrier=bgrp;
 
-  // register barrier as an interactable gate to the roof (only prompts when you're up high)
-  addInteractable({ x:btx, z:btz, radius:5, type:'roofgate', cost:3000,
+  // interact gate to the roof — prompt shows only when you're up at the top of the stairs
+  addInteractable({ x:0, z:0, radius:STAIR_ROUT+2, type:'roofgate', cost:3000,
     label:()=> (roofOpen || camera.position.y < STAIR_TOP-6) ? null : {key:'F', txt:'Clear Roof Barricade', cost:3000},
     run:()=>{ if(roofOpen) return false; if(camera.position.y<STAIR_TOP-6) return false; if(!spend(3000)) return false; roofOpen=true; AU.buy();
-      toast('ROOF UNLOCKED','box & pack-a-pingas await'); return true; } });
+      toast('ROOF UNLOCKED','the rooftop opens up'); return true; } });
 }
 
 /* Height of the walkable floor at (x,z), resolving which spiral loop you're on via refY.
@@ -325,8 +330,9 @@ function groundHeightAt(x,z, refY){
       if(h<=cap && h>best) best=h;                           // highest reachable step
     }
   }
-  // roof deck (whole interior, only reachable once you've climbed near the top)
-  if(r<=TOWER_H-1){ const h=STAIR_TOP+0.5; if(h<=cap && h>best) best=h; }
+  // roof deck is a RING around the central stairwell hole (r in [STAIR_ROUT, TOWER_H-1]);
+  // the hole itself (r<STAIR_ROUT) stays open so the stairs emerge through it
+  if(r>=STAIR_ROUT && r<=TOWER_H-1){ const h=STAIR_TOP+0.5; if(h<=cap && h>best) best=h; }
   return best;
 }
 
@@ -1054,7 +1060,7 @@ function updatePlayer(dt){
   // door swing
   if(towerDoorPivot){ const tgt=doorOpen?-Math.PI*0.62:0; towerDoorPivot.rotation.y += (tgt-towerDoorPivot.rotation.y)*Math.min(1,dt*3); }
   // roof barricade drops away once cleared
-  if(roofBarrier && roofOpen && roofBarrier.visible){ roofBarrier.position.y -= dt*6; if(roofBarrier.position.y<STAIR_TOP-6){ roofBarrier.visible=false; } }
+  if(roofBarrier && roofOpen && roofBarrier.visible){ roofBarrier.position.y -= dt*6; if(roofBarrier.position.y<-8){ roofBarrier.visible=false; } }
   // gate plank animation
   for(const it of interactables){ if(it.type==='gate' && it.open && it.anim<1){ it.anim=Math.min(1,it.anim+dt*0.8);
     for(const pk of it.planks){ pk.mesh.position.y=pk.cy+(pk.oy-pk.cy)*it.anim; pk.mesh.rotation.z=pk.cr+(pk.or-pk.cr)*it.anim; if(it.anim>=1) pk.mesh.visible=false; } } }
@@ -1182,7 +1188,7 @@ function resetRun(){
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
-  if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=STAIR_TOP; }
+  if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=0; }
   // re-lock spawn points except the starting hub arc; re-close all gates
   if(G.spawnPoints) for(const sp of G.spawnPoints) sp.locked = angDist(sp.deg,90)>52;
   for(const it of interactables){ if(it.type==='gate'){ it.open=false; it.anim=0;
@@ -1212,8 +1218,10 @@ function updateCameraZoom(){
   const w=curW();
   let targetFov=74;
   if(G.rightMouseDown && w){
-    if(w.type==='sniper') targetFov=30;
-    else if(w.type==='rifle') targetFov=45;
+    if(w.type==='sniper') targetFov=30;       // scoped
+    else if(w.type==='rifle') targetFov=45;   // marksman zoom
+    else if(w.type==='pistol') targetFov=55;  // iron-sight zoom
+    else targetFov=60;                        // light ADS on everything else
   }
   camera.fov+=(targetFov-camera.fov)*0.15;
   camera.updateProjectionMatrix();
@@ -1333,6 +1341,7 @@ window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);
 window.__step=(dt)=>simStep(dt||1/60);
 window.__interactables=()=>interactables;
 window.__doorOpen=()=>doorOpen;
+window.__roofOpen=()=>roofOpen;
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
   let n=0; while(G.aliveCount<MAX_Z && n<MAX_Z){ if(!spawnZombie(n%4===0)) break; G.toSpawn=Math.max(0,G.toSpawn-1); n++; } return G.aliveCount; };
 window.__fireTest=()=>{ // aim at an alive enemy and confirm hitscan kills + awards points
