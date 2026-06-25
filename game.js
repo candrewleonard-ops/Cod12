@@ -161,6 +161,9 @@ function buildWorld(){
   scene.add(KIT.makeSky());
   const am = KIT.makeAngryMoon(); am.scale.setScalar(10); am.position.set(-18,46,-86); scene.add(am);
 
+  // tower interior flag (false = exterior, true = in tower)
+  G.inTower = false;
+
   // lights — ONE shadow-casting directional light (baked once), + ambient.
   scene.add(new T.AmbientLight(0x223247, 0.85));
   shadowLight = new T.DirectionalLight(0x9fc2ff, 0.95);
@@ -183,6 +186,7 @@ function buildWorld(){
   road.rotation.x=-Math.PI/2; road.position.y=0.02; road.receiveShadow=true; scene.add(road);
 
   buildTower();
+  buildTowerInterior();
   buildBoundaryAndForest();
   buildStations();
 }
@@ -217,6 +221,30 @@ function buildTower(){
   const door=KIT.box(DOORW,7.5,0.3, KIT.mat(0x3a2a1b,0.85,0)); door.position.set(DOORW/2,3.75,0); doorPivot.add(door);
   for(let i=0;i<4;i++) doorPivot.add(KIT.at(KIT.box(DOORW+0.2,0.26,0.34,KIT.mat(0x2c2014,0.85,0)),DOORW/2,1.0+i*1.9,0));
   KIT.shadow(doorPivot); scene.add(doorPivot); towerDoorPivot=doorPivot;
+}
+
+function buildTowerInterior(){
+  // Rooftop area + internal tower structure
+  const wallMat=new T.MeshStandardMaterial({color:0x1a1e22,roughness:0.94,metalness:0.08});
+  const floorMat=new T.MeshStandardMaterial({color:0x2a2e32,roughness:0.97});
+  const BH=TOWER_H, H=TOWER_TALL, FLOORS=10, FH=H/FLOORS;
+
+  // Rooftop platform (accessible via climbing/door)
+  const roof=new T.Mesh(new T.CylinderGeometry(BH+2,BH+2,1.2,16),floorMat);
+  roof.position.set(0,H+0.8,0); roof.receiveShadow=true; roof.castShadow=true;
+  scene.add(roof);
+
+  // Rooftop railings (low walls)
+  const railGeo=new T.BoxGeometry(BH*2+4,0.8,0.2);
+  [0,Math.PI/2,Math.PI,Math.PI*1.5].forEach(a=>{
+    const rail=new T.Mesh(railGeo,wallMat);
+    rail.position.set(Math.cos(a)*(BH+1.2),H+1.8,Math.sin(a)*(BH+1.2));
+    rail.rotation.y=a;
+    rail.castShadow=true;
+    scene.add(rail);
+  });
+
+  G.rooftopY = H+0.8;
 }
 
 function buildBoundaryAndForest(){
@@ -287,11 +315,11 @@ function buildStations(){
   const [sx,sz]=pos(90);
   addFireLight(sx-7,sz+3); addFireLight(sx+8,sz-3);
 
-  // POWER
+  // POWER (unlocks perks, door, and pack-a-pingas)
   { const g=KIT.makePowerMachine(); g.position.set(sx-9,0,sz-2); g.rotation.y=-2.4;
     addInteractable({group:g, x:sx-9, z:sz-2, radius:3.2, collide:1.2, type:'power',
       label:()=> G.powerOn?null:{key:'F', txt:'Restore POWER', cost:0},
-      run:()=>{ if(G.powerOn) return false; G.powerOn=true; AU.power(); toast('POWER ONLINE','perks & Pack-a-Pingas active'); return true; },
+      run:()=>{ if(G.powerOn) return false; G.powerOn=true; AU.power(); toast('POWER ONLINE','perks & door unlocked'); return true; },
       anim:g.userData.update }); }
   // MYSTERY CRATE
   { const g=KIT.makeCrate(); g.scale.setScalar(1.3); g.position.set(sx+7,0,sz+2);
@@ -307,9 +335,11 @@ function buildStations(){
       run:()=> packAPunch(), anim:g.userData.update }); }
   // TOWER DOOR
   addInteractable({ x:0, z:TOWER_H, radius:5, type:'door', cost:2000,
-    label:()=> doorOpen?null:{key:'F', txt:'Open Tower Door', cost:2000},
-    run:()=>{ if(doorOpen) return false; if(!spend(2000)) return false; doorOpen=true; AU.power();
-      toast('TOWER OPEN','the ascent awaits…'); return true; } });
+    label:()=>{ if(!G.powerOn) return {key:'F', txt:'Open Tower Door (needs power)', cost:0, cant:true};
+      if(doorOpen) return null;
+      return {key:'F', txt:'Open Tower Door', cost:2000}; },
+    run:()=>{ if(doorOpen||!G.powerOn) return false; if(!spend(2000)) return false; doorOpen=true; AU.power();
+      toast('TOWER OPEN','rooftop unlocked…'); return true; } });
 
   // Wall-buys around the hub + ring
   const wallSpec=[ [sx+11,sz-4,'smg',1000], [sx-12,sz+6,'shotgun',1500] ];
@@ -319,10 +349,29 @@ function buildStations(){
   const gateDefs=[ [126,750],[186,1500],[246,2000],[306,2500],[6,3000] ];
   const gates=gateDefs.map(([deg,price])=> addGate(deg,price));
 
+  // JUGGERNAUT PERK (early, south side, no gate)
+  { const [x,z]=pos(90+20); const g=KIT.makePerkMachine(['JUGGERNAUT'],0x8B4513,0xff6b35);
+    g.position.set(x,0,z); g.rotation.y=Math.atan2(x,z);
+    addInteractable({group:g, x, z, radius:3.2, collide:1.2, type:'perk', perkId:'juggernaut', cost:2500, gate:null,
+      label:()=>{ if(!G.powerOn) return {key:'F', txt:'Juggernaut (needs power)', cost:0, cant:true};
+        if(G.perks.has('juggernaut')) return null; return {key:'F', txt:'Perk: JUGGERNAUT (2× HP)', cost:2500}; },
+      run:()=> buyPerk('juggernaut',2500,0xff6b35), anim:g.userData.update }); }
+
   // PERK STATIONS (each behind progression, needs power)
   station(150,['DOUBLE','SHOT'],   0x9c2b2b,0x35d6ff,'doubleshot', gates[0]);
   station(210,['MUG ROOTBEER','METH'],0x6a3b1a,0xffa23a,'rootbeer',  gates[1]);
   station(330,['PINGAS','LIQUID'], 0x4a2a66,0xff48c0,'pingasliquid',gates[3]);
+
+  // ROOFTOP STATIONS (mystery crate + pack-a-pingas on the roof)
+  const roofY=G.rooftopY||34;
+  { const g=KIT.makeCrate(); g.scale.setScalar(1.2); g.position.set(0,roofY+2.2,-8);
+    addInteractable({group:g, x:0, z:-8, radius:3.0, collide:1.1, type:'crate', cost:950,
+      label:()=>({key:'F', txt:'Mystery Crate (ROOF)', cost:950}),
+      run:()=> mysteryCrate(), anim:g.userData.update }); }
+  { const g=KIT.makePingasMachine(); g.scale.setScalar(1.25); g.position.set(0,roofY+2.2,8);
+    addInteractable({group:g, x:0, z:8, radius:3.4, collide:1.3, type:'pap', cost:5000,
+      label:()=> G.perks.has('packaPingas')?null:{key:'F', txt:'Pack-a-Pingas (ROOF)', cost:5000},
+      run:()=> packAPunch(), anim:g.userData.update }); }
 
   // BOSS YARD (north, deg 270): wall-buys + mini-boss spawns here
   { const [x,z]=pos(270); addFireLight(x,z+8);
