@@ -161,6 +161,9 @@ function buildWorld(){
   scene.add(KIT.makeSky());
   const am = KIT.makeAngryMoon(); am.scale.setScalar(10); am.position.set(-18,46,-86); scene.add(am);
 
+  // camera MUST be in the scene graph so its child arms/weapon (first-person viewmodel) render
+  if(camera) scene.add(camera);
+
   // tower interior flag (false = exterior, true = in tower)
   G.inTower = false;
 
