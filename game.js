@@ -444,20 +444,72 @@ function playerZone(){
   if(Math.abs(camera.position.x)<TOWER_H && Math.abs(camera.position.z)<TOWER_H && y<10) return 'inside';
   return 'outside';
 }
-// choose a spawn origin in the player's zone, far enough that it's never on top of them
+/* ── Player-relative spawning (multiplayer-ready) ──────────────────────────────
+   Spawn origins are derived from the LIVE player position(s) + walkable space, not
+   fixed map coordinates, so the system survives map edits. Zombies appear in a ring
+   AROUND the targeted player — never close (COD-zombies feel), never inside the tower
+   body, never in a region you haven't unlocked yet. */
+const SPAWN_RING = { outside:[20,42], inside:[10,20], roof:[10,22] };  // [min,max] spawn distance
+
+// MULTIPLAYER HOOK: the live player list. Single-player today (the local camera); when
+// co-op lands, push the other players onto G.players and the director splits the horde
+// across them by equal share (1p=100%, 2p=50/50, 3p≈33/33/34, …) — no other changes.
+function getPlayers(){
+  return (G.players && G.players.length) ? G.players
+       : [{ x:camera.position.x, z:camera.position.z, eyeY:(G.eyeY||EYE), zone:playerZone() }];
+}
+function spawnTargetPlayer(){ const ps=getPlayers(); return ps[(Math.random()*ps.length)|0]; }
+
+// is the outdoor arc at this point still locked (gated) ? — keeps spawns out of areas
+// you haven't paid into yet.
+function regionLockedAt(x,z){
+  if(!G.spawnPoints) return false;
+  const deg=Math.atan2(z,x)*180/Math.PI;
+  let near=null, best=1e9;
+  for(const s of G.spawnPoints){ if(s.zone!=='outside') continue;
+    const d=angDist(s.deg,deg); if(d<best){ best=d; near=s; } }
+  return near ? near.locked : false;
+}
+// is (x,z) a legal standing spot for an enemy in this zone (walkable, unlocked) ?
+function spawnValid(x,z,zone){
+  const r=Math.hypot(x,z);
+  if(r>R_OUT-1) return false;
+  if(zone==='outside'){
+    if(Math.abs(x)<TOWER_H+1 && Math.abs(z)<TOWER_H+1) return false;   // not in the tower body
+    if(regionLockedAt(x,z)) return false;                              // not in a locked arc
+  } else if(zone==='inside'){
+    if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                     // in the room, off the column
+  } else if(zone==='roof'){
+    if(r<STAIR_ROUT+1.5 || r>TOWER_H-2.5) return false;                // on the deck ring
+  }
+  return true;
+}
+// choose a spawn origin in a RING around a targeted player; never on top of anyone,
+// never in the tower body, never in a locked region. Falls back to the nearest unlocked
+// fixed spawn point if the random ring can't find a clear spot.
 function pickSpawn(){
-  const px=camera.position.x, pz=camera.position.z, zone=playerZone();
+  const tp=spawnTargetPlayer(), zone=tp.zone||'outside';
+  const [minD,maxD]=SPAWN_RING[zone]||SPAWN_RING.outside;
+  const ps=getPlayers();
+  const baseY = zone==='roof' ? (STAIR_TOP+0.5) : 0;
+  for(let tries=0;tries<14;tries++){
+    const a=Math.random()*Math.PI*2, d=minD+Math.random()*(maxD-minD);
+    const x=tp.x+Math.cos(a)*d, z=tp.z+Math.sin(a)*d;
+    if(!spawnValid(x,z,zone)) continue;
+    let ok=true; for(const p of ps){ if(Math.hypot(x-p.x,z-p.z)<minD){ ok=false; break; } }  // clear of every player
+    if(ok) return [x,z,baseY,zone];
+  }
+  // fallback: nearest unlocked fixed spawn point in the zone (farthest-half, like before)
   const all=G.spawnPoints||[];
-  const minD = zone==='outside'?16:9;
   let pool=all.filter(s=>s.zone===zone && !s.locked);
   if(!pool.length) pool=all.filter(s=>s.zone==='outside' && !s.locked);
   if(!pool.length) pool=all.slice();
-  let cands=pool.filter(s=>Math.hypot(s.x-px,s.z-pz)>minD); if(!cands.length) cands=pool;
-  cands.sort((a,b)=>Math.hypot(b.x-px,b.z-pz)-Math.hypot(a.x-px,a.z-pz));
-  const top=Math.max(1,Math.ceil(cands.length/2));      // pick from the farther half
+  let cands=pool.filter(s=>Math.hypot(s.x-tp.x,s.z-tp.z)>minD); if(!cands.length) cands=pool;
+  cands.sort((a,b)=>Math.hypot(b.x-tp.x,b.z-tp.z)-Math.hypot(a.x-tp.x,a.z-tp.z));
+  const top=Math.max(1,Math.ceil(cands.length/2));
   const s=cands[(Math.random()*top)|0] || {x:46,z:0,zone:'outside',y:0};
   const jit = zone==='outside'?5:3;
-  return [s.x+(Math.random()-0.5)*jit, s.z+(Math.random()-0.5)*jit, s.y||0, zone];
+  return [s.x+(Math.random()-0.5)*jit, s.z+(Math.random()-0.5)*jit, s.y||baseY, zone];
 }
 
 function addInteractable(o){ interactables.push(o); if(o.group){ KIT.shadow(o.group); scene.add(o.group);}
@@ -671,6 +723,7 @@ function poolEntry(isCrawler){
   grp.visible=false; scene.add(grp);
   return { grp, anim:grp.userData.update, isCrawler, alive:false,
            hp:0, speed:0, atkCd:0, dieT:0, riseT:0, zone:'outside', baseY:0,
+           px:0, pz:0, stuckT:0, side:1, lastDist:1e9,   // stuck-detection + wall-follow state
            bodyY:isCrawler?0.34:1.2, bodyR:isCrawler?0.5:0.6, headY:isCrawler?0.4:1.74, headR:0.3 };
 }
 function initEnemyPools(){
@@ -1075,8 +1128,8 @@ function buyPerk(id,cost,trimHex){
 function perkName(id){ return id==='doubleshot'?'DOUBLE SHOT': id==='rootbeer'?'MUG ROOTBEER METH': id==='juggernaut'?'JUGGERNAUT': id==='pingasliquid'?'PINGAS LIQUID':id; }
 
 /* ════════════════════ WAVE DIRECTOR ════════════════════ */
-// Endless: milestone bosses at 12 (Mega → unlocks bunker) and 25 (Giga); waves never stop.
-const MEGA_ROUND=12, GIGA_ROUND=25;
+// Endless: milestone bosses at 12 (Mega → unlocks bunker) and 20 (Giga); waves never stop.
+const MEGA_ROUND=12, GIGA_ROUND=20;
 function startRound(n){
   G.round=n; G.roundActive=true;
   G.budget = Math.round(6 + n*3.5 + n*n*0.35);
@@ -1137,11 +1190,14 @@ function clampArena(x,z, rad, isPlayer, playerY){
         const f=(STAIR_ROUT-1)/ir; x*=f; z*=f; }
     }
   } else {
-    // enemies: tower is SOLID (they never get inside)
+    // enemies: tower is solid EXCEPT the south doorway when it's open, so the horde can
+    // actually chase you inside (mirrors the player's door gap above). The gap only opens
+    // on the +z (south) wall within |x|<3.5; N/E/W walls stay solid so they can't leak through.
     const h=W+rad;
     if(Math.abs(x)<h && Math.abs(z)<h){
       const dx=h-Math.abs(x), dz=h-Math.abs(z);
-      if(dx<dz) x=(x<0?-h:h); else z=(z<0?-h:h);
+      const atSouthDoor = doorOpen && Math.abs(x)<3.5 && z>0 && dz<=dx;
+      if(!atSouthDoor){ if(dx<dz) x=(x<0?-h:h); else z=(z<0?-h:h); }
     }
   }
   // prop colliders (gate colliders disappear once the gate is opened)
@@ -1170,31 +1226,73 @@ function clampEnemy(x,z, rad, zone){
   return clampArena(x,z,rad,false);
 }
 
+// nearest player to (x,z) — co-op safe; each enemy independently hunts its closest target
+function nearestPlayer(x,z,players){ let best=players[0],bd=1e18;
+  for(const p of players){ const d=(p.x-x)*(p.x-x)+(p.z-z)*(p.z-z); if(d<bd){ bd=d; best=p; } } return best; }
+// route an enemy via the south tower door when its quarry is in a different zone, so it can
+// actually get inside/out instead of grinding on the wall. (Roof has its own spawns.)
+function routeWaypoint(e,tgt){
+  const TZ=tgt.zone||'outside';
+  if(e.zone===TZ) return tgt;
+  if(doorOpen){
+    if(e.zone==='outside' && (TZ==='inside'||TZ==='roof')) return {x:0,z:TOWER_H-2};  // step inside
+    if(e.zone==='inside'  && TZ==='outside')               return {x:0,z:TOWER_H+2};  // step outside
+  }
+  return tgt;
+}
+// flip an enemy's zone as it crosses the open south doorway (both sides are ground level)
+function maybeCrossDoor(e,nx,nz){
+  if(!doorOpen || Math.abs(nx)>=3.4) return;
+  if(e.zone==='outside' && nz < TOWER_H-0.2){ e.zone='inside';  e.baseY=0; }
+  else if(e.zone==='inside' && nz > TOWER_H+0.2){ e.zone='outside'; e.baseY=0; }
+}
 function updateEnemies(dt){
-  const px=camera.position.x, pz=camera.position.z, et=clock.elapsedTime;
-  const pFootY = (G.eyeY||EYE)-EYE;
+  const players=getPlayers(), et=clock.elapsedTime;
   for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
     // rise-in scale
     if(e.grp.scale.x<1){ e.grp.scale.setScalar(Math.min(1, e.grp.scale.x+dt*3)); }
-    const dx=px-e.grp.position.x, dz=pz-e.grp.position.z; const dist=Math.hypot(dx,dz);
-    // face + walk
-    e.grp.rotation.y = Math.atan2(dx,dz);
-    if(dist>1.4){
-      const sp=e.speed*dt; let nx=e.grp.position.x+dx/dist*sp, nz=e.grp.position.z+dz/dist*sp;
-      const c=clampEnemy(nx,nz,0.5,e.zone); e.grp.position.x=c.x; e.grp.position.z=c.z;
+    const tgt=nearestPlayer(e.grp.position.x, e.grp.position.z, players);
+    const pdx=tgt.x-e.grp.position.x, pdz=tgt.z-e.grp.position.z; const pdist=Math.hypot(pdx,pdz);
+    e.grp.rotation.y = Math.atan2(pdx,pdz);              // always face the player
+    if(pdist>1.4){
+      const wp=routeWaypoint(e,tgt);
+      const wx=wp.x-e.grp.position.x, wz=wp.z-e.grp.position.z; const wdist=Math.hypot(wx,wz)||1;
+      let hx=wx/wdist, hz=wz/wdist;
+      if(e.stuckT>0.35){ const a=e.side*1.3, ca=Math.cos(a), sa=Math.sin(a);  // wall-follow: veer ~75°
+        const rx=hx*ca-hz*sa, rz=hx*sa+hz*ca; hx=rx; hz=rz; }
+      const sp=e.speed*dt;
+      const ox=e.grp.position.x, oz=e.grp.position.z;
+      const c=clampEnemy(ox+hx*sp, oz+hz*sp, 0.5, e.zone);
+      maybeCrossDoor(e, c.x, c.z);
+      // stuck bookkeeping: are we actually getting closer to the player?
+      if(pdist > e.lastDist-0.02){ e.stuckT+=dt; if(e.stuckT>1.4){ e.side=-e.side; e.stuckT=0.5; } }
+      else e.stuckT=0;
+      e.lastDist=pdist;
+      e.grp.position.x=c.x; e.grp.position.z=c.z;
     } else {
       // melee — only if on roughly the same level as the player
-      if(Math.abs(e.baseY-pFootY)<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.isCrawler?8:14); } }
+      if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.isCrawler?8:14); } }
+      e.stuckT=0;
     }
     e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
     if(e.anim) e.anim(et + i); // shamble (kit closure)
   }
-  // mini-boss
+  // mini-boss (greedy seek + the same wall-follow so it can't wedge on the tower/props)
   if(boss && boss.userData.alive){ if(boss.scale.x<0.46) boss.scale.setScalar(Math.min(0.46,boss.scale.x+dt*0.6));
-    const dx=px-boss.position.x, dz=pz-boss.position.z, dist=Math.hypot(dx,dz);
+    const bd=boss.userData; const tgt=nearestPlayer(boss.position.x, boss.position.z, players);
+    const dx=tgt.x-boss.position.x, dz=tgt.z-boss.position.z, dist=Math.hypot(dx,dz);
     boss.rotation.y=Math.atan2(dx,dz);
-    if(dist>2.2){ const sp=boss.userData.speed*dt; const c=clampArena(boss.position.x+dx/dist*sp, boss.position.z+dz/dist*sp, 1.0, false); boss.position.x=c.x; boss.position.z=c.z; }
-    else { boss.userData.atkCd-=dt; if(boss.userData.atkCd<=0){ boss.userData.atkCd=1.3; hurtPlayer(34); } }
+    if(dist>2.2){
+      let hx=dx/dist, hz=dz/dist;
+      if((bd._stuckT||0)>0.35){ const a=(bd._side||1)*1.3, ca=Math.cos(a), sa=Math.sin(a);
+        const rx=hx*ca-hz*sa, rz=hx*sa+hz*ca; hx=rx; hz=rz; }
+      const sp=bd.speed*dt; const c=clampArena(boss.position.x+hx*sp, boss.position.z+hz*sp, 1.0, false);
+      if(dist > (bd._lastDist||1e9)-0.02){ bd._stuckT=(bd._stuckT||0)+dt; if(bd._stuckT>1.4){ bd._side=-(bd._side||1); bd._stuckT=0.5; } }
+      else bd._stuckT=0;
+      bd._lastDist=dist;
+      boss.position.x=c.x; boss.position.z=c.z;
+    }
+    else { bd.atkCd-=dt; if(bd.atkCd<=0){ bd.atkCd=1.3; hurtPlayer(34); } }
     if(boss.userData.update) boss.userData.update(et);
   }
   // mega boss (egg → hatch → chase)
@@ -1203,7 +1301,8 @@ function updateEnemies(dt){
     mega.userData.hatch += dt*0.12;
     if(mega.userData.update) mega.userData.update(et);
     if(mega.userData.hatch>1.2){
-      const dx=px-mega.position.x, dz=pz-mega.position.z, dist=Math.hypot(dx,dz);
+      const tgt=nearestPlayer(mega.position.x, mega.position.z, players);
+      const dx=tgt.x-mega.position.x, dz=tgt.z-mega.position.z, dist=Math.hypot(dx,dz);
       mega.rotation.y=Math.atan2(dx,dz);
       if(dist>8){ const sp=mega.userData.speed*dt; let nx=mega.position.x+dx/dist*sp, nz=mega.position.z+dz/dist*sp;
         if(megaY>10){ const c=clampEnemy(nx,nz,2.5,'roof'); nx=c.x; nz=c.z; }   // keep it on the roof deck
