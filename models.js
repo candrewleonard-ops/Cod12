@@ -256,7 +256,7 @@ class Kit {
     const sleeve=this.mat(0x2f3a2a,0.9,0);
     const glove=this.mat(0x1c130c,0.85,0);
     const r=this.ARM_RIG[type] || this.ARM_RIG.smg;
-    const weapon=this.makeWeapon(type, pap); weapon.scale.setScalar(r.ws); weapon.position.set(r.wp[0],r.wp[1],r.wp[2]); weapon.rotation.set(r.wr[0],r.wr[1],r.wr[2]); g.add(weapon);
+    const weapon=(type==='pickaxe')?this.makePickaxe('stone'):(type==='diapick')?this.makePickaxe('diamond'):this.makeWeapon(type, pap); weapon.scale.setScalar(r.ws); weapon.position.set(r.wp[0],r.wp[1],r.wp[2]); weapon.rotation.set(r.wr[0],r.wr[1],r.wr[2]); g.add(weapon);
     g.add(this.buildArm(sleeve, glove, r.rh, r.rr, 0.62));
     g.add(this.buildArm(sleeve, glove, r.lh, r.lr, 0.60));
     this.shadow(g);
@@ -276,7 +276,9 @@ class Kit {
       lmg:     { ws:0.56, wp:[0.15,-0.34,-1.00], wr:[0.05,Math.PI,0], rh:[0.17,-0.48,-0.60], rr:[0.7,0.18,0.05],  lh:[0.03,-0.44,-1.26], lr:[1.04,-0.26,0] },
       wonder:  { ws:0.58, wp:[0.14,-0.32,-0.98], wr:[0.05,Math.PI,0], rh:[0.16,-0.47,-0.60], rr:[0.7,0.18,0.05],  lh:[0.02,-0.42,-1.22], lr:[1.04,-0.24,0] },
       axe:     { ws:0.74, wp:[0.13,-0.30,-0.62], wr:[0.05,Math.PI,0], rh:[0.13,-0.44,-0.46], rr:[0.72,0.12,0.05], lh:[0.02,-0.50,-0.52], lr:[0.82,-0.16,0.1] },
-      hells:   { ws:0.74, wp:[0.13,-0.30,-0.62], wr:[0.05,Math.PI,0], rh:[0.13,-0.44,-0.46], rr:[0.72,0.12,0.05], lh:[0.02,-0.50,-0.52], lr:[0.82,-0.16,0.1] }
+      hells:   { ws:0.74, wp:[0.13,-0.30,-0.62], wr:[0.05,Math.PI,0], rh:[0.13,-0.44,-0.46], rr:[0.72,0.12,0.05], lh:[0.02,-0.50,-0.52], lr:[0.82,-0.16,0.1] },
+      pickaxe: { ws:0.62, wp:[0.26,-0.42,-0.55], wr:[0.5,0.2,-0.7], rh:[0.2,-0.5,-0.42], rr:[0.7,0.12,0.05], lh:[0.04,-0.34,-0.2], lr:[0.55,-0.1,0.1] },
+      diapick: { ws:0.62, wp:[0.26,-0.42,-0.55], wr:[0.5,0.2,-0.7], rh:[0.2,-0.5,-0.42], rr:[0.7,0.12,0.05], lh:[0.04,-0.34,-0.2], lr:[0.55,-0.1,0.1] }
     };
   }
   buildArm(sleeve, glove, pos, rot, len) {
@@ -775,6 +777,16 @@ class Kit {
     g.add(this.at(this.box(0.86,0.8,0.46,dm),0,1.55,0)); g.add(this.at(this.box(0.9,0.12,0.5,glow),0,1.2,0));
     [-1,1].forEach(s=> g.add(this.at(this.box(0.24,0.7,0.3,dm), s*0.55,1.55,0)));
     [-1,1].forEach(s=>{ g.add(this.at(this.box(0.32,0.7,0.34,dm), s*0.22,0.85,0)); g.add(this.at(this.box(0.36,0.22,0.46,dm), s*0.22,0.4,0.04)); });
+    return g;
+  }
+  makePickaxe(mat){ // blocky Minecraft pickaxe (handle + head, sharp tips)
+    const g=new THREE.Group(); const stick=this.mcMat('wood');
+    const headM=(mat==='diamond')?this.mcMat('diamond'):this.mat(0x7a7a82,0.9,0.05);
+    g.add(this.at(this.cyl(0.035,0.04,1.0, stick,'y'),0,0,0));
+    const head=new THREE.Group(); head.position.set(0,0.5,0); g.add(head);
+    head.add(this.at(this.box(0.5,0.14,0.14, headM),0,0,0));
+    [-1,1].forEach(s=>{ const tip=new THREE.Mesh(new THREE.ConeGeometry(0.08,0.34,4), headM); tip.position.set(s*0.32,0.02,0); tip.rotation.z=s*-1.15; head.add(tip); });
+    if(mat==='diamond') g.add(this.at(this.box(0.52,0.16,0.16, this.glow(0x6ff6ee,0.4)),0,0.5,0));
     return g;
   }
   makeCoin(){

@@ -77,6 +77,8 @@ window.__G = G;
 // dmg is per-hit; fireRate in shots/sec; auto = hold to fire; pellets/spread for shotgun.
 const WDEF = {
   pistol:  { name:'M1911',        mag:8,  reserve:64,  rate:6,  dmg:42,  auto:false, reload:1.3, range:90, kind:'ballistic' },
+  pickaxe: { name:'PICKAXE',         mag:1, reserve:0, rate:2.2, dmg:65,  auto:true, reload:0, range:4.2, kind:'melee', melee:true },
+  diapick: { name:'DIAMOND PICKAXE', mag:1, reserve:0, rate:3.4, dmg:150, auto:true, reload:0, range:4.8, kind:'melee', melee:true },
   smg:     { name:'MP-40',        mag:32, reserve:240, rate:13, dmg:26,  auto:true,  reload:1.7, range:80, kind:'ballistic' },
   shotgun: { name:'TRENCH GUN',   mag:6,  reserve:48,  rate:2.2,dmg:30,  auto:false, reload:2.3, range:34, kind:'ballistic', pellets:8, spread:0.13 },
   rifle:   { name:'KAR-98',       mag:5,  reserve:50,  rate:1.6,dmg:160, auto:false, reload:2.0, range:140,kind:'ballistic' },
@@ -1045,9 +1047,24 @@ function fire(){
   const w=curW(); if(!w) return;
   const d=WDEF[w.type]; const now=clock.elapsedTime;
   if(w.reloading) return;
-  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1);
+  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.superUpgrade?1.3:1);
   if(now - w.lastShot < 1/rate) return;
   if(w.type==='axe'){ return; } // axe handled by charge system
+  // Melee weapons (pickaxe / diamond pickaxe): no ammo, swing + ray hit, big point reward
+  if(d.kind==='melee'){
+    w.lastShot=now; recoil=Math.min(0.5, recoil+0.4); AU.shoot('pistol');  // bigger kick = swing
+    camera.getWorldDirection(_dir);
+    const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+    const dmgMul=(w.superUpgrade?2:1)*(G.instaKill>0?1000:1);
+    const hit=rayHitEnemy(ox,oy,oz,_dir.x,_dir.y,_dir.z,d.range);
+    if(hit){ const dmg=d.dmg*dmgMul;
+      if(hit.e) damageEnemy(hit.e, dmg, false, 0, true);
+      else if(hit.boss) damageBoss(dmg);
+      else if(hit.mega) damageMega(dmg);
+      else if(hit.ore) damageOre(hit.ore, dmg);
+      AU.hit(); hitmarker(); }
+    addPoints(5); return;
+  }
   if(w.ammo<=0){ AU.dry(); flashReloadHint(); return; }
   w.lastShot=now; w.ammo--; updateAmmoHUD();
   recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2) * (G.perks.has('pingasliquid')?0.6:1));
@@ -1056,7 +1073,7 @@ function fire(){
 
   camera.getWorldDirection(_dir);
   const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
-  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1);
+  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (w.superUpgrade?2:1);
 
   if(w.type==='wonder'){ spawnBolt(ox,oy,oz,_dir.x,_dir.y,_dir.z, d.dmg*dmgMul, d.aoe); return; }
 
@@ -1184,15 +1201,15 @@ function updateAxeProj(dt){
 }
 
 /* ════════════════════ DAMAGE / DEATH / DROPS ════════════════════ */
-function damageEnemy(e, dmg, head, bearingDeg){
+function damageEnemy(e, dmg, head, bearingDeg, melee){
   if(!e.alive) return; e.hp-=dmg;
   const lethal = e.hp<=0;
   if(head && lethal && e.grp.userData.blowHead) e.grp.userData.blowHead(bearingDeg||0);  // FATAL headshot → pop the head
-  if(lethal){ killEnemy(e, head); }
+  if(lethal){ killEnemy(e, head, melee); }
 }
-function killEnemy(e, head){
+function killEnemy(e, head, melee){
   e.alive=false; e.grp.visible=false; G.aliveCount--;
-  G.kills++; addPoints(head?100:60);
+  G.kills++; addPoints(melee?130:(head?100:60));
   feedDogs(e.grp.position.x, e.grp.position.z, e.zone);   // feed a nearby wall dog
   if(Math.random()<0.04 + (G.round>3?0.02:0)) spawnDrop(e.grp.position.x, e.grp.position.z);
   checkRoundProgress();
@@ -1320,6 +1337,38 @@ function packAPunch(){
   w.reserve=Math.round(WDEF[w.type].reserve*1.5); w.ammo=w.mag; // …and a full, larger reserve
   buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','2.2× dmg · bigger mag','#35d6ff'); return true;
 }
+/* ── Minecraft melee + super upgrades ───────────────────────────────── */
+function upgradeToDiamondPick(){
+  // turn the wooden pickaxe slot into a diamond pickaxe (keeps any super-upgrade)
+  let w=G.weapons.find(x=>x.type==='pickaxe');
+  if(!w){ // no plain pickaxe? upgrade an existing diamond one is a no-op
+    if(G.weapons.find(x=>x.type==='diapick')){ toast('ALREADY DIAMOND','your pickaxe is maxed','#4fe8e0'); return; }
+    w=newWeapon('diapick',false); if(G.weapons.length<2) G.weapons.push(w); else G.weapons[1]=w;
+  } else {
+    const sup=w.superUpgrade, idx=G.weapons.indexOf(w);
+    const nw=newWeapon('diapick',false); nw.superUpgrade=sup; if(sup) applySuperName(nw);
+    G.weapons[idx]=nw;
+  }
+  buildPlayerArms(); updateAmmoHUD();
+  toast('DIAMOND PICKAXE','crafted · massive melee','#4fe8e0');
+}
+function applySuperName(w){ if(!w) return; const base=WDEF[w.type].name+(w.pap?' +':''); w.name='✦ '+base; }
+function applySuperUpgrade(){
+  // core: super-upgrade the CURRENT weapon (no inventory deduction — grid already consumed)
+  const w=curW(); if(!w) return false;
+  if(w.superUpgrade){ toast('ALREADY DIAMOND','this weapon is super-upgraded','#4fe8e0'); return false; }
+  w.superUpgrade=true; applySuperName(w);
+  buildPlayerArms(); updateAmmoHUD();
+  toast('DIAMOND SUPER-UPGRADE','2× damage · +30% fire rate','#4fe8e0'); return true;
+}
+function diamondSuperUpgrade(){
+  // direct path: spend 3 diamond blocks, then super-upgrade current weapon
+  if((G.inventory.diamondblock||0)<3){ toast('NEED 3 DIAMOND BLOCKS','craft them from 9 diamonds each','#4fe8e0'); return false; }
+  const w=curW(); if(!w || w.superUpgrade){ toast('CANT UPGRADE','already super-upgraded','#4fe8e0'); return false; }
+  G.inventory.diamondblock-=3; if(typeof mcRenderBag==='function') mcRenderBag();
+  return applySuperUpgrade();
+}
+if(typeof window!=='undefined') window.__diamondSuper=diamondSuperUpgrade;
 function buyPerk(id,cost,trimHex){
   if(!G.powerOn) return false; if(G.perks.has(id)) return false;
   if(!spend(cost)) return false; AU.powerup();
@@ -1730,7 +1779,7 @@ function setCharge(k){ $('chargebar').style.width=(k*120)+'px'; }
 
 /* ════════════════════ INPUT / POINTER LOCK ════════════════════ */
 /* ════════════════════ MINECRAFT MODE — inventory + 3×3 crafting ════════════════════ */
-const MC_TYPES = ['cobblestone','wood','plank','coal','steel','obsidian','pingasore','diamond'];
+const MC_TYPES = ['cobblestone','wood','plank','coal','steel','obsidian','pingasore','diamond','diamondblock'];
 const MC_ORE_DROP = { coal:'coal', iron:'steel', gold:'pingasore', redstone:'obsidian', diamond:'diamond', emerald:'pingasore' };
 const MC_RECIPES = [
   { name:'Planks',         out:{type:'plank',  count:4}, shape:[['wood']] },
@@ -1740,10 +1789,13 @@ const MC_RECIPES = [
   { name:'Obsidian',       out:{type:'obsidian',count:1}, shape:[['cobblestone','steel','cobblestone'],['steel','coal','steel'],['cobblestone','steel','cobblestone']] },
   { name:'Diamond',        out:{type:'diamond',count:1}, shape:[['obsidian','pingasore','obsidian'],['pingasore','steel','pingasore'],['obsidian','pingasore','obsidian']] },
   { name:'Pingas Core',    out:{type:'pingasore',count:1}, shape:[['','diamond',''],['diamond','obsidian','diamond'],['','diamond','']] },
+  { name:'Diamond Block',  out:{type:'diamondblock',count:1}, shape:[['diamond','diamond','diamond'],['diamond','diamond','diamond'],['diamond','diamond','diamond']] },
+  { name:'Diamond Pickaxe',out:{type:'diapick',     count:1}, shape:[['diamond','diamond','diamond'],['','plank',''],['','plank','']] },
+  { name:'Super Upgrade',  out:{type:'super',       count:1}, shape:[['diamondblock','diamondblock','diamondblock']] },
 ];
 G.mcGrid = new Array(9).fill(null);
 let mcSel = null, mcMatch = null;
-function mcInitInventory(){ G.inventory = { cobblestone:16, wood:8, plank:0, coal:6, steel:4, obsidian:2, pingasore:1, diamond:0 }; }
+function mcInitInventory(){ G.inventory = { cobblestone:16, wood:8, plank:0, coal:6, steel:4, obsidian:2, pingasore:1, diamond:0, diamondblock:0 }; }
 function mcGiveBlock(type, n){ if(!G.inventory || !MC_TYPES.includes(type)) return; G.inventory[type]=(G.inventory[type]||0)+(n||1);
   if(G.minecraftMode && !$('mcInv').classList.contains('hidden')) mcRenderBag(); }
 function mcOnMined(kind){ const t=MC_ORE_DROP[kind]; if(t) mcGiveBlock(t,1); mcGiveBlock('cobblestone',1); }
@@ -1767,7 +1819,9 @@ function mcSetCell(i,type){ if(type){ if(!G.inventory[type]) return; G.inventory
   G.mcGrid[i]=type||null; mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
 function mcClearGrid(){ for(let i=0;i<9;i++) if(G.mcGrid[i]){ G.inventory[G.mcGrid[i]]++; G.mcGrid[i]=null; } mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
 function mcCraft(){ if(!mcMatch) return; for(let i=0;i<9;i++) G.mcGrid[i]=null; const o=mcMatch.out;
-  if(o.type==='bench') G.inventory.bench=(G.inventory.bench||0)+o.count; else mcGiveBlock(o.type,o.count);
+  if(o.type==='diapick'){ upgradeToDiamondPick(); }
+  else if(o.type==='super'){ applySuperUpgrade(); }                 // grid already consumed the 3 diamond blocks
+  else if(o.type==='bench') G.inventory.bench=(G.inventory.bench||0)+o.count; else mcGiveBlock(o.type,o.count);
   if(AU&&AU.buy) AU.buy(); toast('CRAFTED '+mcMatch.name.toUpperCase(),'+'+o.count,'#9fd0ff'); mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
 function mcRenderGrid(){ document.querySelectorAll('#mcGrid .mcSlot').forEach(el=>{ const t=G.mcGrid[+el.dataset.grid]; el.innerHTML=t?mcBlkHTML(t):''; }); }
 function mcRenderBag(){ const bag=$('mcBag'); bag.innerHTML=''; const all=MC_TYPES.concat(G.inventory.bench?['bench']:[]);
@@ -1851,7 +1905,7 @@ function resetRun(){
   G.minecraftMode=false; G.inventory=null; G.mcGrid=new Array(9).fill(null); { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
-  G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
+  G.perks=new Set(); G.weapons=[newWeapon('pistol',false), newWeapon('pickaxe',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
   if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=0; }
   for(const g of stairGates){ g.cleared=false; if(g.grp) g.grp.visible=true; }
