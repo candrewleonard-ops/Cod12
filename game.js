@@ -718,15 +718,21 @@ function spawnMiniBoss(){
   AU.round(); toast('HEAVY INCOMING','a brute stalks the boss yard');
 }
 
-function spawnMegaBoss(px, pz, py){
-  if(!mega){ mega=KIT.makeRoyalEgg(); mega.scale.setScalar(3.0); scene.add(mega); }
+function spawnMegaBoss(px, pz, py, opts){
+  opts=opts||{};
+  if(!mega){ mega=KIT.makeRoyalEgg(); scene.add(mega); }
+  const scale=opts.scale||3.0; mega.scale.setScalar(scale);
   const yd = (px!=null)? {x:px,z:pz} : (G.bossYard||{x:0,z:-52});
-  G.megaY = py||0;
+  G.megaY = py||0; G.megaScale=scale;
   mega.position.set(yd.x, G.megaY+4.2, yd.z); mega.visible=true;
-  mega.userData.hp = 14000; mega.userData.maxhp=14000; mega.userData.alive=true; mega.userData.hatch=0;
-  mega.userData.speed=1.4; mega.userData.atkCd=0;
+  mega.userData.hp = opts.hp||14000; mega.userData.maxhp=mega.userData.hp;
+  mega.userData.alive=true; mega.userData.hatch=0;
+  mega.userData.speed=(1.4)*(opts.speedMul||1); mega.userData.dmg=45*(opts.dmgMul||1);
+  mega.userData.source=opts.source||'altar'; mega.userData.atkCd=0;
   G.megaActive=true;
-  AU.round(); toast('THE ROYAL EGG HATCHES','MEGA PINGAS BOSS','#ff48c0');
+  AU.round();
+  if(opts.source==='lvl25') toast('GIGA PINGAS AWAKENS','3× everything — survive','#ff48c0');
+  else toast('THE ROYAL EGG HATCHES','MEGA PINGAS BOSS','#ff48c0');
 }
 
 /* ════════════════════ PLAYER ARMS / WEAPONS ════════════════════ */
@@ -926,8 +932,16 @@ function damageBoss(dmg){ if(!boss||!boss.userData.alive) return; boss.userData.
     addPoints(800); toast('BRUTE DOWN','+800'); spawnDrop(boss.position.x,boss.position.z); checkRoundProgress(); } }
 function damageMega(dmg){ if(!mega||!mega.userData.alive) return; mega.userData.hp-=dmg;
   const hp=mega.userData.hp;
-  if(hp<=0){ mega.userData.alive=false; mega.visible=false; G.megaActive=false; G.megaDefeated=true;
-    updateBossBar(); winGame(); } }
+  if(hp<=0){ mega.userData.alive=false; mega.visible=false; G.megaActive=false;
+    const src=mega.userData.source;
+    fxExplosion(mega.position.x, mega.position.y+2, mega.position.z, 0xff48c0, 2.2); AU.explode();
+    if(src==='lvl12'){ G.lvl12Done=true; G.bunkerUnlocked=true; addPoints(2500);
+      toast('PINGAS BOSS DOWN','BUNKER UNLOCKED · the siege continues','#ff48c0'); }
+    else if(src==='lvl25'){ G.lvl25Done=true; addPoints(6000);
+      toast('GIGA PINGAS DOWN','+6000 · endless siege rolls on','#ff48c0'); }
+    else { G.megaDefeated=true; addPoints(3000); toast('PINGAS BOSS DOWN','+3000','#ff48c0'); }
+    updateBossBar(); checkRoundProgress();   // resume the waves — the game never ends now
+  } }
 
 const drops=[]; // {grp, kind, t, x, z}
 const DROP_KINDS=['instakill','maxammo','doublepts','nuke','chips'];
@@ -1029,14 +1043,16 @@ function buyPerk(id,cost,trimHex){
 function perkName(id){ return id==='doubleshot'?'DOUBLE SHOT': id==='rootbeer'?'MUG ROOTBEER METH': id==='juggernaut'?'JUGGERNAUT': id==='pingasliquid'?'PINGAS LIQUID':id; }
 
 /* ════════════════════ WAVE DIRECTOR ════════════════════ */
-const FINAL_ROUND=12;
+// Endless: milestone bosses at 12 (Mega → unlocks bunker) and 25 (Giga); waves never stop.
+const MEGA_ROUND=12, GIGA_ROUND=25;
 function startRound(n){
   G.round=n; G.roundActive=true;
   G.budget = Math.round(6 + n*3.5 + n*n*0.35);
-  if(n>=FINAL_ROUND){ G.budget=0; spawnMegaBoss(); }
+  if(n===MEGA_ROUND && !G.lvl12Done){ G.budget=0; spawnMegaBoss(null,null,0,{source:'lvl12'}); }
+  else if(n===GIGA_ROUND && !G.lvl25Done){ G.budget=0; spawnMegaBoss(null,null,0,{source:'lvl25', scale:9.0, hp:42000, dmgMul:2, speedMul:1.2}); }
   G.toSpawn=G.budget; G.spawnTimer=0;
   updateRoundHUD(true); if(n>1) AU.round();
-  if(n%5===0 && n>0 && n<FINAL_ROUND) spawnMiniBoss();
+  if(n%5===0 && n>0 && n!==MEGA_ROUND && n!==GIGA_ROUND) spawnMiniBoss();
 }
 function checkRoundProgress(){
   updateZleftHUD();
@@ -1160,7 +1176,7 @@ function updateEnemies(dt){
       if(dist>8){ const sp=mega.userData.speed*dt; let nx=mega.position.x+dx/dist*sp, nz=mega.position.z+dz/dist*sp;
         if(megaY>10){ const c=clampEnemy(nx,nz,2.5,'roof'); nx=c.x; nz=c.z; }   // keep it on the roof deck
         mega.position.x=nx; mega.position.z=nz; }
-      else if(Math.abs(megaY-((G.eyeY||EYE)-EYE))<6){ mega.userData.atkCd-=dt; if(mega.userData.atkCd<=0){ mega.userData.atkCd=1.6; hurtPlayer(45); } }
+      else if(Math.abs(megaY-((G.eyeY||EYE)-EYE))<6){ mega.userData.atkCd-=dt; if(mega.userData.atkCd<=0){ mega.userData.atkCd=1.6; hurtPlayer(mega.userData.dmg||45); } }
       mega.position.y=megaY+ (mega.userData.hatch<2? (2-mega.userData.hatch)*4.2 : 0);  // settle from the egg onto the deck
     }
   }
@@ -1269,7 +1285,7 @@ function updateZleftHUD(){ const left = G.toSpawn + G.aliveCount; $('zleft').inn
 function updateBossBar(){
   const bar=$('bossbar'); if(!bar) return;
   let active=null, name='';
-  if(mega && mega.userData.alive){ active=mega.userData; name='MEGA PINGAS BOSS'; }
+  if(mega && mega.userData.alive){ active=mega.userData; name=(mega.userData.source==='lvl25')?'GIGA PINGAS BOSS':'MEGA PINGAS BOSS'; }
   else if(boss && boss.userData.alive){ active=boss.userData; name='BRUTE'; }
   if(active){ bar.classList.remove('hidden'); $('bossname').textContent=name;
     const p=Math.max(0,Math.min(1, active.hp/active.maxhp)); $('bosshpfill').style.width=(p*100)+'%';
@@ -1352,6 +1368,7 @@ function resetRun(){
   for(const d of drops){ scene.remove(d.grp); } drops.length=0;
   for(const n of nades){ scene.remove(n.grp); } nades.length=0;
   G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
+  G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false;
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
@@ -1519,6 +1536,7 @@ window.__wallDogs=()=>wallDogs;
 window.__feedDogs=(x,z,zone)=>feedDogs(x,z,zone);
 window.__updateBossBar=()=>updateBossBar();
 window.__damageMega=(d)=>damageMega(d);
+window.__megaSource=()=> mega&&mega.userData?mega.userData.source:null;
 window.__fillHorde=()=>{ // spawn straight to the cap for stress measurement
   let n=0; while(G.aliveCount<MAX_Z && n<MAX_Z){ if(!spawnZombie(n%4===0)) break; G.toSpawn=Math.max(0,G.toSpawn-1); n++; } return G.aliveCount; };
 window.__fireTest=()=>{ // aim at an alive enemy and confirm hitscan kills + awards points
