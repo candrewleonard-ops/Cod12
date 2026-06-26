@@ -1745,11 +1745,20 @@ function updateHealthHUD(){ const p=Math.max(0,G.health/G.maxHealth); $('hpfill'
 function updatePointsHUD(){ $('points').querySelector('.val').textContent=G.points; }
 let popT=0;
 function pointsPop(n){ const el=$('pointsPop'); el.textContent='+'+n; el.style.opacity='1'; el.style.transform='translateY(-6px)'; popT=clock.elapsedTime; }
-function updateAmmoHUD(){ const w=curW(); if(!w) return; const a=$('ammo');
-  a.querySelector('.mag').textContent = w.type==='axe'? (w.ammo?'●':'○') : w.ammo;
-  a.querySelector('.res').textContent = w.reserve;
-  a.classList.toggle('low', w.ammo<=Math.max(1,Math.ceil(w.mag*0.25)));
-  $('wname').innerHTML = w.pap? '<span class="pap">'+w.name+'</span>' : w.name;
+function updateAmmoHUD(){ const a=$('ammo'), wn=$('wname');
+  // holding a build item (block / food / material) → show its name only, no ammo readout
+  const aid=(typeof hotActiveId==='function')?hotActiveId():null, ad=aid?itemDef(aid):null;
+  if(ad && ad.kind!=='gun'){ if(wn) wn.innerHTML=itemName(aid);
+    if(a) a.style.display='none'; const rh=$('reloadHint'); if(rh) rh.style.opacity='0'; updateNadeHUD(); return; }
+  const w=curW(); if(!w) return;
+  const melee = WDEF[w.type] && WDEF[w.type].kind==='melee';
+  if(a) a.style.display = melee? 'none':'';      // melee tools (pickaxe) have no ammo either
+  if(!melee){
+    a.querySelector('.mag').textContent = w.type==='axe'? (w.ammo?'●':'○') : w.ammo;
+    a.querySelector('.res').textContent = w.reserve;
+    a.classList.toggle('low', w.ammo<=Math.max(1,Math.ceil(w.mag*0.25)));
+  }
+  if(wn) wn.innerHTML = w.pap? '<span class="pap">'+w.name+'</span>' : w.name;
   updateNadeHUD();
 }
 function updateNadeHUD(){ /* could show nades; folded into wname for brevity */ }
@@ -1986,6 +1995,7 @@ function refreshHeldHand(){ if(heldHandMesh){ camera.remove(heldHandMesh); heldH
   if(d && d.kind!=='gun'){ if(arms) arms.visible=isPlaceable(id)||d.kind==='food'?false:true;
     const m=KIT.makeHeldItem(isPlaceable(id)?id:null); if(m){ heldHandMesh=m; camera.add(m); } if(arms) arms.visible = !m; }
   else { if(arms) arms.visible=true; }   // gun selected → show arms
+  updateAmmoHUD();                         // refresh the bottom-right HUD (block name vs gun ammo)
 }
 
 // ── eat food ──
