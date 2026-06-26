@@ -688,6 +688,145 @@ class Kit {
     g.userData.glow = glowing ? sm : null;     // pulse target for the game's updateOre
     return g;
   }
+  // ════════ MINECRAFT AREA ASSETS (ported from the designer map) ════════
+  mcMat(type) {
+    const C={ cobblestone:0x8a8a8f, coal:0x2b2b30, steel:0xb8c0c8, obsidian:0x251935, pingasore:0x9c8a3a, dirt:0x6b4a2c, grassTop:0x5a9e3a, wood:0x6b4a28, leaves:0x2f6b2a, diamond:0x4fe8e0, plank:0x9c7a48 };
+    return this.mat(C[type]!=null?C[type]:0x888888, 0.95, type==='steel'||type==='diamond'?0.4:0);
+  }
+  makeMcBlock(type) { // 1 unit = half player height
+    const g=new THREE.Group(); const S=0.5; const base=this.mcMat(type);
+    const cube=this.box(S,S,S, base); g.add(cube);
+    if (type==='coal'||type==='steel'||type==='obsidian'||type==='pingasore'||type==='diamond'){
+      cube.material=this.mcMat('cobblestone');
+      const oreC={coal:0x16161a, steel:0xd8e0e8, obsidian:0x6a3aa0, pingasore:0xffd23a, diamond:0x6ff6ee}[type];
+      const om=this.glow(oreC, type==='pingasore'||type==='diamond'?1.2:0.25);
+      for(let i=0;i<6;i++){ const f=this.box(0.1,0.1,0.02, om); const s=0.255, a=[[0,0,s],[0,0,-s],[s,0,0],[-s,0,0],[0,s,0],[0,-s,0]][i]; f.position.set(a[0]+(Math.random()-0.5)*0.18, a[1]+(Math.random()-0.5)*0.18, a[2]); if(Math.abs(a[0])>0.2)f.rotation.y=Math.PI/2; if(Math.abs(a[1])>0.2)f.rotation.x=Math.PI/2; g.add(f); }
+    } else if (type==='grass'){ cube.material=this.mcMat('dirt'); g.add(this.at(this.box(S,0.12,S,this.mcMat('grassTop')),0,0.19,0)); }
+    g.userData.mcType=type;
+    return g;
+  }
+  makeBlockyTree(){
+    const g=new THREE.Group();
+    for(let i=0;i<4;i++) g.add(this.at(this.box(0.5,0.5,0.5,this.mcMat('wood')),0,0.25+i*0.5,0));
+    const lv=this.mcMat('leaves');
+    for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++)for(let y=0;y<2;y++){ if(Math.abs(x)+Math.abs(z)+y>2.5)continue; g.add(this.at(this.box(0.5,0.5,0.5,lv), x*0.5,2.0+y*0.5,z*0.5)); }
+    g.add(this.at(this.box(0.5,0.5,0.5,lv),0,3.0,0));
+    return g;
+  }
+  makeCave() { // big rocky shell + animated ore-vein wall
+    const g=new THREE.Group(); const rock=this.mat(0x2a2e33,0.98,0), rock2=this.mat(0x20242a,0.98,0);
+    const R=9;
+    for(let i=0;i<70;i++){ const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI*0.55;
+      if(Math.sin(a)>0.35 && e<0.45) continue; // entrance mouth at +Z
+      const b=this.box(1.6+Math.random()*1.4,1.6+Math.random()*1.4,1.6+Math.random()*1.4, Math.random()<0.5?rock:rock2);
+      b.position.set(Math.cos(a)*Math.cos(e)*R, Math.sin(e)*R*0.95+0.4, Math.sin(a)*Math.cos(e)*R); b.rotation.set(Math.random(),Math.random(),Math.random()); b.castShadow=true; b.receiveShadow=true; g.add(b); }
+    g.add(this.at(this.box(R*2.3,0.5,R*2.3, rock2),0,-0.25,0));
+    [[-5,2.5,-5],[5,2.5,-4]].forEach(p=>{ g.add(this.at(this.box(0.3,0.4,0.3,this.glow(0xff8a3a,1.4)),p[0],p[1],p[2])); const pl=new THREE.PointLight(0xff7a2a,1.4,16,2); pl.position.set(p[0],p[1],p[2]); g.add(pl); });
+    const rollOre=()=>{ const r=Math.random(); return r<0.75?'cobblestone':r<0.85?'coal':r<0.925?'steel':r<0.975?'obsidian':'pingasore'; };
+    const veins=[];
+    for(let x=-4;x<=4;x++)for(let y=0;y<6;y++){ const blk=this.makeMcBlock(rollOre()); blk.position.set(x*0.55,0.45+y*0.55,-R+2.0); g.add(blk); veins.push({blk, pos:blk.position.clone(), _t:null}); }
+    let nextT=0;
+    g.userData.update=(t)=>{
+      if(t>nextT){ nextT=t+0.9; const v=veins[(Math.random()*veins.length)|0]; g.remove(v.blk); const nb=this.makeMcBlock(rollOre()); nb.position.copy(v.pos); nb.scale.setScalar(1.3); g.add(nb); v.blk=nb; v._t=t; }
+      veins.forEach(v=>{ if(v._t!=null){ const k=Math.min(1,(t-v._t)/0.4); v.blk.scale.setScalar(1.3-k*0.3); if(k>=1)v._t=null; } });
+    };
+    return g;
+  }
+  makeHouse() { // blocky village cabin
+    const g=new THREE.Group(); const plank=this.mcMat('plank'), wood=this.mcMat('wood'), leaf=this.mat(0x7a4a28,0.95,0);
+    g.add(this.at(this.box(4,2.4,4, plank),0,1.2,0));
+    for(let i=0;i<5;i++){ const w=4-i*0.7; g.add(this.at(this.box(w,0.5,w, leaf),0,2.6+i*0.45,0)); }
+    [-1.5,1.5].forEach(x=> g.add(this.at(this.box(0.4,2.4,0.4,wood), x,1.2,1.9)));
+    g.add(this.at(this.box(1.1,1.8,0.2, this.mcMat('wood')),0,0.9,2.0));
+    g.add(this.at(this.box(0.9,0.9,0.2, this.glow(0xffd98a,0.5)),1.2,1.5,2.0));
+    return g;
+  }
+  makeDiamondArmor(){
+    const g=new THREE.Group(); const dm=this.mcMat('diamond'), glow=this.glow(0x6ff6ee,0.3);
+    const helm=new THREE.Group(); helm.position.set(0,2.45,0); g.add(helm); helm.add(this.box(0.62,0.5,0.62,dm)); helm.add(this.at(this.box(0.64,0.16,0.64,glow),0,-0.28,0));
+    g.add(this.at(this.box(0.86,0.8,0.46,dm),0,1.55,0)); g.add(this.at(this.box(0.9,0.12,0.5,glow),0,1.2,0));
+    [-1,1].forEach(s=> g.add(this.at(this.box(0.24,0.7,0.3,dm), s*0.55,1.55,0)));
+    [-1,1].forEach(s=>{ g.add(this.at(this.box(0.32,0.7,0.34,dm), s*0.22,0.85,0)); g.add(this.at(this.box(0.36,0.22,0.46,dm), s*0.22,0.4,0.04)); });
+    return g;
+  }
+  makeCoin(){
+    const g=new THREE.Group(); const gold=this.mat(0xf0c020,0.3,0.85);
+    const coin=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.07,24), gold); coin.rotation.x=Math.PI/2; g.add(coin);
+    g.add(this.at(new THREE.Mesh(new THREE.RingGeometry(0.2,0.26,20), this.mat(0xc89010,0.4,0.7)),0,0,0.04));
+    const star=new THREE.Mesh(new THREE.CircleGeometry(0.12,5), this.glow(0xfff0a0,0.5)); star.position.z=0.045; g.add(star);
+    g.userData.update=(t)=>{ g.rotation.y=t*1.8; };
+    return g;
+  }
+  makeChungus(){ // "big chungus" bunny villager — fat fur body + curved villager face billboard
+    const g=new THREE.Group(); const furM=this.mat(0x6a6258,0.95,0), belly=this.mat(0xe8e4dc,0.9,0);
+    g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(1.05,18,16), furM),0,1.15,0));
+    g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.78,16,14), belly),0,1.0,0.55));
+    [-1,1].forEach(s=>{ const ear=new THREE.Mesh((THREE.CapsuleGeometry?new THREE.CapsuleGeometry(0.12,0.7,4,8):new THREE.CylinderGeometry(0.12,0.1,0.8,8)), furM); ear.position.set(s*0.3,2.5,-0.1); ear.rotation.z=s*0.15; g.add(ear);
+      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.4,12,12),furM), s*0.95,1.05,0.15)); });
+    [-1,1].forEach(s=> g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.3,12,12),furM), s*0.92,1.5,0.25)));
+    const fr=1.0, fw=1.15;
+    const face=this.faceBillboard('villager',fw,'villagerface.png');
+    const faceGeo=new THREE.PlaneGeometry(fw,fw*fr,18,1); const pa=faceGeo.attributes.position;
+    for(let i=0;i<pa.count;i++){ const k=pa.getX(i)/(fw/2); pa.setZ(i,-0.2*k*k); } faceGeo.computeVertexNormals();
+    face.geometry=faceGeo;
+    face.material.side=THREE.DoubleSide; face.material.depthWrite=false;
+    face.position.set(0,1.95,0.62); face.renderOrder=4; g.add(face); g.userData.face=face;
+    g.userData.update=(t)=>{ g.position.y=Math.abs(Math.sin(t*2))*0.06; g.rotation.z=Math.sin(t*1.4)*0.03; };
+    return g;
+  }
+  makeGiantTree() { // colossal climbable tree: full-height ladder + giant rooftop platform with perks
+    const g=new THREE.Group(); const bark=this.mat(0x4a3420,0.95,0), barkD=this.mat(0x382713,0.95,0), leaf=this.mat(0x2f6b2a,0.95,0), leaf2=this.mat(0x265a22,0.95,0);
+    const TH=94, PAD=30, LZ=5.4;
+    g.add(this.at(this.cyl(4.2,5.2,TH, bark,'y'),0,TH/2,0));
+    g.add(this.at(this.cyl(5.4,7.4,9, barkD,'y'),0,4.5,0));
+    for(let i=0;i<8;i++){ const a=i/8*Math.PI*2; g.add(this.at(this.box(0.6,TH*0.82,0.6,barkD),Math.cos(a)*4.3,TH*0.46,Math.sin(a)*4.3)); }
+    const LADX=0, LADZ=LZ, CUTR=8.8;
+    for(let i=0;i<4;i++){ const y=60+i*5, r=12-i*1.8; for(let k=0;k<8;k++){ const a=k/8*Math.PI*2+i*0.6; const px=Math.cos(a)*r, pz=Math.sin(a)*r;
+      if(Math.hypot(px-LADX, pz-LADZ) < CUTR) continue;
+      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(5.5-i*0.5,10,8), k%2?leaf:leaf2), px, y, pz)); } }
+    for(let i=0;i<4;i++){ const y=60+i*5; for(let a=Math.PI*0.62; a<=Math.PI*1.38; a+=Math.PI*0.19){ const px=LADX+Math.cos(a)*CUTR, pz=LADZ+Math.sin(a)*CUTR;
+      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(3.0,9,7), (i+a)%2<1?leaf:leaf2), px, y, pz)); } }
+    g.add(this.at(new THREE.Mesh(new THREE.CylinderGeometry(CUTR-3.4, CUTR-3.4, 30, 18, 1, true), new THREE.MeshStandardMaterial({ color:0x241a0e, roughness:1, metalness:0, side:THREE.BackSide })), LADX, 60, LADZ));
+    const plat=new THREE.Group(); plat.position.set(0,TH,0); g.add(plat); g.userData.platform=plat;
+    plat.add(this.at(this.box(PAD,1.3,PAD,this.mcMat('plank')),0,0,0));
+    { const EXT=24, CUT=11, HW=PAD/2;
+      const sh=new THREE.Shape();
+      sh.moveTo(-HW, HW); sh.lineTo(HW+EXT, HW);
+      sh.quadraticCurveTo(HW+EXT-CUT, 0, HW+EXT, -HW);
+      sh.lineTo(-HW, -HW); sh.closePath();
+      const geo=new THREE.ExtrudeGeometry(sh,{depth:1.3,bevelEnabled:false}); geo.rotateX(-Math.PI/2);
+      const deck=new THREE.Mesh(geo,this.mcMat('plank')); deck.position.y=-0.65; deck.castShadow=true; deck.receiveShadow=true; plat.add(deck);
+      [[HW+5,HW-4],[HW+5,-HW+4],[HW+EXT-4,HW-5],[HW+EXT-4,-HW+5]].forEach(c=> plat.add(this.at(this.box(1.1,12,1.1,bark),c[0],-6,c[1])));
+      plat.add(this.at(this.box(EXT,2.2,0.5,this.mcMat('wood')), HW+EXT/2,1.7,HW));
+      plat.add(this.at(this.box(EXT,2.2,0.5,this.mcMat('wood')), HW+EXT/2,1.7,-HW));
+      for(let i=0;i<=7;i++){ const tt=i/7; plat.add(this.at(this.box(0.4,2.2,0.4,this.mcMat('wood')), HW+EXT-Math.sin(tt*Math.PI)*CUT, 1.7, HW-tt*PAD)); }
+    }
+    [[-PAD/2+2,-PAD/2+2],[PAD/2-2,-PAD/2+2],[-PAD/2+2,PAD/2-2],[PAD/2-2,PAD/2-2]].forEach(c=> plat.add(this.at(this.box(1.1,12,1.1,bark),c[0],-6,c[1])));
+    const rail=(x,z,w,d)=> plat.add(this.at(this.box(w,2.2,d,this.mcMat('wood')),x,1.7,z));
+    rail(0,-PAD/2,PAD,0.5); rail(-PAD/2,0,0.5,PAD);
+    rail(-PAD/4-1.5,PAD/2,PAD/2-3,0.5); rail(PAD/4+1.5,PAD/2,PAD/2-3,0.5);
+    const mUps=[];
+    const pap=this.makePingasMachine(); pap.scale.setScalar(1.05); pap.position.set(-9,0.65,-9); pap.rotation.y=0.7; plat.add(pap); mUps.push(pap.userData.update);
+    const perk1=this.makePerkMachine(['DOUBLE','SHOT'],0x9c2b2b,0x35d6ff); perk1.position.set(9,0.65,-9); perk1.rotation.y=-0.7; plat.add(perk1); mUps.push(perk1.userData.update);
+    const perk2=this.makePerkMachine(['PINGAS','LIQUID'],0x4a2a66,0xff48c0); perk2.position.set(11,0.65,3); perk2.rotation.y=-1.4; plat.add(perk2); mUps.push(perk2.userData.update);
+    const sniper=this.makeWallBuy('sniper','3000'); sniper.position.set(-11,0.65,3); sniper.rotation.y=1.4; plat.add(sniper);
+    const sign=new THREE.Mesh(new THREE.PlaneGeometry(7,1.4), new THREE.MeshBasicMaterial({ map:this.label('SNIPER','#bfe0ff'), transparent:true })); sign.position.set(-11,4,3); sign.rotation.y=1.4; plat.add(sign);
+    const plight=new THREE.PointLight(0xffd9a0,1.0,46); plight.position.set(0,7,0); plat.add(plight);
+    const ladder=new THREE.Group(); ladder.position.set(0,0,LZ); g.add(ladder); g.userData.ladder=ladder;
+    [-0.85,0.85].forEach(x=> ladder.add(this.at(this.box(0.2,TH,0.2,this.mcMat('wood')), x,TH/2,0)));
+    for(let i=0;i<Math.floor(TH/1.0);i++) ladder.add(this.at(this.box(2.0,0.16,0.16,this.mcMat('wood')),0,0.7+i*1.0,0));
+    const climbers=[];
+    for(let i=0;i<6;i++){ const z=(i%3===0)?this.makeCrawler():this.makeZombie(); z.scale.setScalar(0.92); g.add(z); climbers.push({ z, off:i/6, u:z.userData.update }); }
+    g.userData.update=(t)=>{
+      mUps.forEach(u=>{ try{ u(t); }catch(e){} });
+      climbers.forEach((c,i)=>{ const p=(t*0.32+c.off)%1.45;
+        if(p<1){ c.z.visible=true; c.z.position.set(0, 3+p*(TH-5), LZ+1.2); c.z.rotation.y=Math.PI; if(c.u)c.u(t*2.6+i); }
+        else { const w=Math.min(1,(p-1)/0.32); c.z.visible=true; c.z.position.set(0, TH+1.0, LZ+1.2-w*10); c.z.rotation.y=Math.PI; if(c.u)c.u(t*2.2+i); }
+      });
+    };
+    g.userData.TH=TH; g.userData.PAD=PAD; g.userData.LZ=LZ;
+    return g;
+  }
   makeRoyalEgg() {
     const g=new THREE.Group();
     const shell=this.mat(0xf0e6c8,0.55,0.1), gold=this.mat(0xd9a441,0.4,0.6);
