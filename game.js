@@ -101,6 +101,12 @@ const AU = (() => {
     const f=ac.createBiquadFilter(); f.type='lowpass'; f.frequency.value=filt||1800;
     n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t+dur); }
   const now=()=> ac?ac.currentTime:0;
+  // optional sampled monkey call — uses assets/i-m-coming-for-your-pingas.mp3 if present
+  // (HTMLAudio works from both file:// and http; falls back to the synth if absent)
+  let monkeyAudio=null, monkeyOk=false, monkeyTried=false;
+  function loadMonkey(){ if(monkeyTried) return; monkeyTried=true;
+    try{ monkeyAudio=new Audio((window.__resources && window.__resources.monkeyCall) || 'assets/i-m-coming-for-your-pingas.mp3');
+      monkeyAudio.preload='auto'; monkeyAudio.oncanplaythrough=()=>{ monkeyOk=true; }; monkeyAudio.onerror=()=>{ monkeyOk=false; }; }catch(e){} }
   return {
     resume(){ ensure(); if(ac.state==='suspended') ac.resume(); },
     shoot(kind){ ensure(); const t=now();
@@ -120,7 +126,9 @@ const AU = (() => {
     explode(){ ensure(); const t=now(); noise(t,0.5,0.6,500); tone(60,t,0.5,'sawtooth',0.4,25); },
     round(){ ensure(); const t=now(); tone(80,t,0.9,'sawtooth',0.3,40); [196,233,294].forEach((f,i)=>tone(f,t+0.3+i*0.12,0.3,'triangle',0.18)); },
     groan(){ ensure(); const t=now(); tone(70+Math.random()*30,t,0.5,'sawtooth',0.08,40+Math.random()*20); },
-    monkey(){ ensure(); const t=now(); [520,660,430,720].forEach((f,i)=>tone(f,t+i*0.09,0.08,'square',0.18,f*1.5)); noise(t,0.22,0.14,1500); },
+    monkey(){ ensure(); loadMonkey();
+      if(monkeyOk && monkeyAudio){ try{ const a=monkeyAudio.cloneNode(); a.volume=0.7; a.play().catch(()=>{}); return; }catch(e){} }
+      const t=now(); [520,660,430,720].forEach((f,i)=>tone(f,t+i*0.09,0.08,'square',0.18,f*1.5)); noise(t,0.22,0.14,1500); },
   };
 })();
 

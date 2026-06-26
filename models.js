@@ -596,7 +596,17 @@ class Kit {
     }
     const t=new THREE.CanvasTexture(c); t.anisotropy=4; if('sRGBEncoding' in THREE) t.encoding=THREE.sRGBEncoding; this[key]=t; return t;
   }
-  faceBillboard(kind,w){ return new THREE.Mesh(new THREE.PlaneGeometry(w,w), new THREE.MeshBasicMaterial({ map:this.faceTex(kind), transparent:true })); }
+  // billboard that shows the polished procedural face instantly, then auto-upgrades to the
+  // real PNG the moment it's available (window.__resources.<kind>Img or assets/<file>).
+  faceBillboard(kind,w,file){
+    const mat=new THREE.MeshBasicMaterial({ map:this.faceTex(kind), transparent:true });
+    if(file){ const url=(window.__resources && window.__resources[kind+'Img']) || ('assets/'+file);
+      const img=new Image();
+      img.onload=()=>{ const t=new THREE.Texture(img); if('sRGBEncoding' in THREE) t.encoding=THREE.sRGBEncoding; t.needsUpdate=true; mat.map=t; mat.needsUpdate=true; };
+      img.onerror=()=>{};   // keep the procedural face
+      img.src=url; }
+    return new THREE.Mesh(new THREE.PlaneGeometry(w,w), mat);
+  }
 
   // EVENT ENEMY — ape body + streamer-face billboard (invades on every 6th round)
   makeMonkey(){
@@ -606,7 +616,7 @@ class Kit {
     g.add(this.at(this.box(0.5,0.4,0.34, skin),0,1.02,0.07));
     const head=new THREE.Group(); head.position.set(0,1.66,0.05); g.add(head);
     head.add(new THREE.Mesh(new THREE.SphereGeometry(0.27,14,14), fur));
-    const face=this.faceBillboard('monkey',0.5); face.position.set(0,0,0.26); head.add(face);
+    const face=this.faceBillboard('monkey',0.5,'monkeyface.png'); face.position.set(0,0,0.26); head.add(face);
     [-1,1].forEach(s=> head.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.12,10,10),fur), s*0.26,0.05,0)));
     const armL=this.limb(skin,fur); armL.scale.set(1.2,1.4,1.2); armL.position.set(-0.42,1.5,0.04); armL.rotation.set(-0.9,0,0.25); g.add(armL);
     const armR=this.limb(skin,fur); armR.scale.set(1.2,1.4,1.2); armR.position.set(0.42,1.5,0.04); armR.rotation.set(-0.8,0,-0.25); g.add(armR);
@@ -655,7 +665,7 @@ class Kit {
     const head=new THREE.Group(); head.position.set(0,1.78,0.05); g.add(head);
     head.add(this.box(0.32,0.38,0.3, skin));
     head.add(this.at(this.box(0.12,0.34,0.22, skin),0,-0.04,0.2));
-    const face=this.faceBillboard('villager',0.36); face.position.set(0,0.02,0.17); head.add(face);
+    const face=this.faceBillboard('villager',0.36,'villagerface.png'); face.position.set(0,0.02,0.17); head.add(face);
     const armL=this.limb(skin,robe); armL.position.set(-0.34,1.5,0.12); armL.rotation.set(-1.1,0.4,0.2); g.add(armL);
     const armR=this.limb(skin,robe); armR.position.set(0.34,1.5,0.12); armR.rotation.set(-1.1,-0.4,-0.2); g.add(armR);
     const legL=this.leg(robe); legL.position.set(-0.15,0.92,0); g.add(legL);
