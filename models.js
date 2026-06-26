@@ -36,6 +36,31 @@ class Kit {
     l.add(this.at(this.box(0.2,0.13,0.3, this.mat(0x14110d,0.9,0)), 0,-0.83,0.05));
     return l;
   }
+  // Head-blow-off rig: blowHead(hitDeg) snaps to one of 12 sectors and launches the head
+  // OPPOSITE the bullet with a ballistic arc + spin, a bloody neck stump + gib burst.
+  addHeadPop(g, head, rx, ry, rz, restRotX) {
+    const rest=new THREE.Vector3(rx,ry,rz), rrx=restRotX||0;
+    const st={ phase:'idle', t0:0, dir:new THREE.Vector3(1,0,0), land:0.14 };
+    const stump=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.13,0.12,10), this.glow(0x8a1410,0.7));
+    stump.position.set(rx,ry-0.16,rz); stump.visible=false; g.add(stump);
+    const gibs=[], gm=this.glow(0x9a1810,0.6);
+    for(let i=0;i<7;i++){ const p=this.box(0.05,0.05,0.05,gm); p.visible=false; g.add(p); gibs.push(p); }
+    g.userData.head=head; g.userData.headOff=false;
+    g.userData.blowHead=(hitDeg)=>{ if(st.phase!=='idle')return;
+      const snap=Math.round((((hitDeg%360)+360)%360)/30)*30;
+      const away=(snap+180)*Math.PI/180;
+      st.dir.set(Math.cos(away),0,Math.sin(away)); st.phase='pending'; g.userData.headOff=true; stump.visible=true;
+      gibs.forEach(p=>{ p.visible=true; p.position.copy(rest); const a=Math.random()*Math.PI*2; p.userData.v=new THREE.Vector3(Math.cos(a)*1.4,2.2+Math.random()*1.6,Math.sin(a)*1.4); }); };
+    g.userData.resetHead=()=>{ st.phase='idle'; g.userData.headOff=false; head.position.copy(rest); head.rotation.set(rrx,0,0); stump.visible=false; gibs.forEach(p=>p.visible=false); };
+    return (t)=>{ if(st.phase==='idle')return;
+      if(st.phase==='pending'){ st.t0=t; st.phase='fly'; }
+      const dt=t-st.t0, sp=4.4, travel=Math.min(dt,1.4);
+      let y=rest.y + (3.8*dt - 4.9*dt*dt); if(y<st.land) y=st.land;
+      head.position.set(rest.x+st.dir.x*sp*travel, y, rest.z+st.dir.z*sp*travel);
+      head.rotation.x+=0.45; head.rotation.z+=0.35;
+      gibs.forEach(p=>{ if(!p.visible)return; const v=p.userData.v; p.position.x+=v.x*0.025; p.position.y+=v.y*0.025; p.position.z+=v.z*0.025; v.y-=0.14; if(p.position.y<0.04)p.visible=false; });
+    };
+  }
   makeZombie() {
     const g=new THREE.Group();
     const skin=this.mat(0x6f7d5c,0.98,0);
@@ -50,12 +75,14 @@ class Kit {
     const armR=this.limb(skin, sleeve); armR.position.set(0.35,1.55,0.02); armR.rotation.set(-1.3,0,-0.18); g.add(armR);
     const legL=this.leg(cloth); legL.position.set(-0.16,0.92,0); g.add(legL);
     const legR=this.leg(cloth); legR.position.set(0.16,0.92,0); g.add(legR);
+    const headPop=this.addHeadPop(g, head, 0,1.74,0.06, 0.16);
     g.userData.update = (t) => {
       g.rotation.z=Math.sin(t*2)*0.05;
       g.position.y=Math.abs(Math.sin(t*4))*0.04;
       legL.rotation.x=Math.sin(t*4)*0.5; legR.rotation.x=-Math.sin(t*4)*0.5;
       armL.rotation.z=0.18+Math.sin(t*3)*0.09; armR.rotation.z=-0.18-Math.sin(t*3+1)*0.09;
-      head.rotation.z=Math.sin(t*2+1)*0.08;
+      if(!g.userData.headOff) head.rotation.z=Math.sin(t*2+1)*0.08;
+      headPop(t);
     };
     return g;
   }
@@ -376,7 +403,8 @@ class Kit {
     const armR=this.limb(skin,cloth); armR.position.set(0.26,0.34,0.32); armR.rotation.set(-1.6,0,-0.2); g.add(armR);
     g.add(this.at(this.box(0.18,0.16,0.3, this.mat(0x3a1c18,0.9,0)), -0.12,0.18,-0.3));
     g.add(this.at(this.box(0.18,0.16,0.26, this.mat(0x3a1c18,0.9,0)), 0.12,0.18,-0.34));
-    g.userData.update=(t)=>{ g.position.y=Math.abs(Math.sin(t*5))*0.03; armL.rotation.z=0.2+Math.sin(t*4)*0.22; armR.rotation.z=-0.2-Math.sin(t*4+1)*0.22; head.rotation.z=Math.sin(t*3)*0.1; };
+    const headPop=this.addHeadPop(g, head, 0,0.36,0.44, 0);
+    g.userData.update=(t)=>{ g.position.y=Math.abs(Math.sin(t*5))*0.03; armL.rotation.z=0.2+Math.sin(t*4)*0.22; armR.rotation.z=-0.2-Math.sin(t*4+1)*0.22; if(!g.userData.headOff) head.rotation.z=Math.sin(t*3)*0.1; headPop(t); };
     return g;
   }
   makeBoss() {

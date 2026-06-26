@@ -929,6 +929,7 @@ function spawnZombie(kind){
   e.zone=zone||'outside'; e.baseY=baseY||0;
   e.grp.position.set(x,e.baseY,z); e.grp.scale.setScalar(0.01); e.grp.visible=true;
   e.alive=true; e.dieT=0; e.riseT=0; e.atkCd=0;
+  if(e.grp.userData.resetHead) e.grp.userData.resetHead();   // restore a head popped last life
   e.stuckT=0; e.lastDist=1e9; e.side=(Math.random()<0.5?-1:1);
   const r=G.round;
   let hp = Math.round((e.isCrawler?70:100) * (1 + r*0.18)) + (e.isCrawler?0:r*4);
@@ -985,6 +986,7 @@ function buildPlayerArms(){
   arms = KIT.makeArms(w.type, w.pap);
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
+  tagReloadParts(arms);                                    // capture the reload rig (mag/charge/pump/core + arms)
   // reusable muzzle flash light (constant light count — toggled, never added/removed)
   if(!muzzle){ muzzle=new T.PointLight(0xffd58a,0,6,2); camera.add(muzzle); muzzle.position.set(0.2,-0.2,-1.2); }
   // steady viewmodel fill so the held weapon reads clearly even at night / indoors
@@ -1067,7 +1069,8 @@ function fire(){
     const hit=rayHitEnemy(ox,oy,oz,dx,dy,dz,d.range);
     if(hit){ anyHit=true;
       const dmg = d.dmg*dmgMul*(hit.head?1.8:1);
-      if(hit.e) damageEnemy(hit.e, dmg, hit.head);
+      const bearingDeg = Math.atan2(dz, dx) * 180/Math.PI;   // bullet travel bearing (head pops away from it)
+      if(hit.e) damageEnemy(hit.e, dmg, hit.head, bearingDeg);
       else if(hit.boss) damageBoss(dmg);
       else if(hit.mega) damageMega(dmg);
       else if(hit.ore) damageOre(hit.ore, dmg);
@@ -1180,9 +1183,11 @@ function updateAxeProj(dt){
 }
 
 /* ════════════════════ DAMAGE / DEATH / DROPS ════════════════════ */
-function damageEnemy(e, dmg, head){
+function damageEnemy(e, dmg, head, bearingDeg){
   if(!e.alive) return; e.hp-=dmg;
-  if(e.hp<=0){ killEnemy(e, head); }
+  const lethal = e.hp<=0;
+  if(head && lethal && e.grp.userData.blowHead) e.grp.userData.blowHead(bearingDeg||0);  // FATAL headshot → pop the head
+  if(lethal){ killEnemy(e, head); }
 }
 function killEnemy(e, head){
   e.alive=false; e.grp.visible=false; G.aliveCount--;
@@ -1585,14 +1590,58 @@ function updatePlayer(dt){
 }
 
 /* reload */
+/* ════════════════════ RELOAD ANIMATION ════════════════════
+   Lightweight first-person reload anim — no new meshes; reuses the held weapon group
+   + arm groups, driven by the existing reload timer. */
+function _win(p,a,b){ return (p<=a||p>=b)?0:Math.sin((p-a)/(b-a)*Math.PI); }   // 0→1→0 bell
+function _ramp(p,a,b){ return Math.min(1,Math.max(0,(p-a)/(b-a))); }
+function _swap(p,a,b){ const k=_ramp(p,a,b); return k<0.5? k*2 : (1-k)*2; }     // drop then seat
+function tagReloadParts(arms){
+  if(!arms) return; const weapon=arms.userData.weapon; if(!weapon) return;
+  const rArm=arms.children[1], lArm=arms.children[2]; const ch=weapon.children;
+  const type=window.__SE && window.__SE.weapon; const part={};
+  if(type==='pistol'){ part.slide=ch[0]; }
+  else if(type==='smg'){ part.mag=ch[2]; part.charge=ch[3]; }
+  else if(type==='shotgun'){ part.pump=ch[2]; }
+  else if(type==='ak'){ part.mag=ch[2]; part.charge=ch[6]; }
+  else if(type==='lmg'){ part.drum=ch[2]; part.charge=ch[6]; }
+  else if(type==='wonder'){ part.core=weapon.children.find(o=>o.geometry&&o.geometry.type==='SphereGeometry'); }
+  else if(type==='sniper'){ part.charge=ch[5]; }
+  else { part.mag=ch[2]; part.charge=ch[5]; }
+  const base=(o)=>o?{o, p:o.position.clone(), r:o.rotation.clone(), s:o.scale.clone()}:null;
+  const r={ W:base(weapon), R:base(rArm), L:base(lArm), part:{} };
+  for(const k in part){ const b=base(part[k]); if(b) r.part[k]=b; }
+  arms.userData.reloadRig=r;
+}
+function _resetBase(b){ if(!b) return; b.o.position.copy(b.p); b.o.rotation.copy(b.r); b.o.scale.copy(b.s); }
+function clearReloadAnim(arms){ const rig=arms&&arms.userData.reloadRig; if(!rig) return;
+  _resetBase(rig.W); _resetBase(rig.L); _resetBase(rig.R); for(const k in rig.part) _resetBase(rig.part[k]); }
+function applyReloadAnim(arms, type, p){
+  const rig=arms&&arms.userData.reloadRig; if(!rig) return; p=Math.min(1,Math.max(0,p));
+  const W=rig.W, L=rig.L, R=rig.R, part=rig.part;
+  _resetBase(W); _resetBase(L); _resetBase(R); for(const k in part) _resetBase(part[k]);
+  const bell=_win(p,0,1);
+  if(W){ W.o.position.y += -0.09*bell; W.o.position.z += 0.05*bell; }              // gun dips toward player
+  if(type==='pistol'){ if(W) W.o.rotation.z += 0.45*bell; if(part.slide){ part.slide.o.position.z += -0.13*_win(p,0.78,0.96); } if(L){ L.o.position.y += -0.24*_win(p,0.08,0.62); } }
+  else if(type==='smg'){ if(W) W.o.rotation.z += 0.32*bell; if(part.mag){ part.mag.o.position.y += -0.7*_swap(p,0.06,0.58); } if(part.charge){ part.charge.o.position.z += -0.16*_win(p,0.8,0.96); } if(L){ L.o.position.y += -0.32*_win(p,0.06,0.58); } }
+  else if(type==='shotgun'){ const pmp=_win(p,0.28,0.5)+_win(p,0.6,0.82); if(part.pump){ part.pump.o.position.z += -0.2*pmp; } if(W) W.o.rotation.x += -0.12*bell; if(L){ L.o.position.z += -0.2*pmp; } }
+  else if(type==='ak'){ if(W) W.o.rotation.z += 0.35*bell; if(part.mag){ const o=_win(p,0.08,0.72); part.mag.o.position.y += -0.5*o; part.mag.o.rotation.x += 0.7*o; } if(part.charge){ part.charge.o.position.z += -0.14*_win(p,0.8,0.95); } if(L){ L.o.position.y += -0.3*_win(p,0.08,0.72); } }
+  else if(type==='lmg'){ if(W){ W.o.position.y += -0.16*bell; W.o.rotation.z += 0.2*bell; } if(part.drum){ const o=_win(p,0.2,0.72); part.drum.o.position.y += -0.34*o; part.drum.o.rotation.z += 6.0*_ramp(p,0.2,0.72); } if(L){ L.o.position.y += -0.34*_win(p,0.18,0.78); } }
+  else if(type==='wonder'){ if(W) W.o.rotation.x += -0.18*bell; if(part.core){ const o=_win(p,0.14,0.84); part.core.o.position.z += 0.42*o; const s=1+0.7*o; part.core.o.scale.set(s,s,s); } if(L){ L.o.position.y += -0.2*_win(p,0.2,0.7); } }
+  else if(type==='sniper'){ if(W) W.o.rotation.z += 0.4*bell; if(part.charge){ part.charge.o.position.z += -0.12*_win(p,0.82,0.96); } if(L) L.o.position.y += -0.28*_win(p,0.08,0.6); }
+  else { if(W) W.o.rotation.z += 0.4*bell; if(part.mag){ part.mag.o.position.y += -0.62*_swap(p,0.08,0.6); } if(part.charge){ part.charge.o.position.z += -0.12*_win(p,0.82,0.96); } if(L) L.o.position.y += -0.28*_win(p,0.08,0.6); }
+}
 function startReload(){
   const w=curW(); if(!w||w.reloading) return; if(w.ammo>=w.mag || w.reserve<=0) return;
   const d=WDEF[w.type]; const rt=d.reload * (G.perks.has('pingasliquid')?0.55:1);
-  w.reloading=true; w.reloadEnd=clock.elapsedTime+rt; AU.reload(); flashReloadHint(true);
+  w.reloading=true; w.reloadStart=clock.elapsedTime; w.reloadEnd=clock.elapsedTime+rt; AU.reload(); flashReloadHint(true);
 }
 function updateReload(){
-  const w=curW(); if(!w||!w.reloading) return;
-  if(clock.elapsedTime>=w.reloadEnd){ w.reloading=false;
+  const w=curW();
+  if(!w||!w.reloading){ if(arms && arms.userData.reloadRig && arms.userData._wasReloading){ clearReloadAnim(arms); arms.userData._wasReloading=false; } return; }
+  const dur=(w.reloadEnd-w.reloadStart)||1, p=(clock.elapsedTime-(w.reloadStart||clock.elapsedTime))/dur;
+  applyReloadAnim(arms, w.type, p); if(arms&&arms.userData) arms.userData._wasReloading=true;
+  if(clock.elapsedTime>=w.reloadEnd){ w.reloading=false; clearReloadAnim(arms); if(arms&&arms.userData) arms.userData._wasReloading=false;
     const need=w.mag-w.ammo, take=Math.min(need,w.reserve); w.ammo+=take; w.reserve-=take; updateAmmoHUD(); flashReloadHint(false); }
 }
 
