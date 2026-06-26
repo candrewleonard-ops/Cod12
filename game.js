@@ -831,29 +831,47 @@ function fire(){
   addPoints(10); // additional money per shot fired
 }
 
-/* Wonder weapon bolt pool */
+/* Wonder weapon bolt pool — FULLY pre-allocated at boot (see prewarmFX).
+   Firing must never create a mesh/material/light: adding a light to the scene
+   forces three.js to recompile every shader, which is the per-shot hitch the
+   Wonder gun used to cause. One shared geometry + one shared material + a single
+   moving point light keep both the spawn cost and the steady-state cost flat. */
 const bolts=[]; const BOLT_MAX=8;
+let boltLight=null;
+function prewarmBolts(){
+  if(bolts.length || !scene) return;
+  const geo=new T.CylinderGeometry(0.06,0.06,1.4,8);   // shared across all bolts
+  const mat=KIT.glow(0x9beaff,2.8);                    // shared material
+  for(let i=0;i<BOLT_MAX;i++){
+    const m=new T.Mesh(geo,mat); m.visible=false; scene.add(m);
+    bolts.push({mesh:m, active:false, dmg:0, aoe:0, life:0, dir:new T.Vector3()});
+  }
+  boltLight=new T.PointLight(0x9beaff,0,7,2); scene.add(boltLight); // one shared light
+}
 function spawnBolt(ox,oy,oz,dx,dy,dz,dmg,aoe){
-  let b=bolts.find(b=>!b.active);
-  if(!b){ if(bolts.length>=BOLT_MAX){ b=bolts[0]; } else {
-    const m=new T.Mesh(new T.CylinderGeometry(0.06,0.06,1.4,8), KIT.glow(0x9beaff,2.8));
-    const light=new T.PointLight(0x9beaff,0,5,2); m.add(light);
-    scene.add(m); b={mesh:m, light, active:false}; bolts.push(b); } }
-  b.mesh.visible=true; b.active=true; b.dmg=dmg; b.aoe=aoe; b.life=0;
-  b.mesh.position.set(ox+dx,oy+dy,oz+dz); b.dir=new T.Vector3(dx,dy,dz);
-  b.mesh.quaternion.setFromUnitVectors(_v2.set(0,1,0), b.dir); b.light.intensity=1.5;
+  if(!bolts.length) prewarmBolts();                    // safety net; normally pre-warmed
+  const b=bolts.find(b=>!b.active) || bolts[0];        // reuse — never allocate
+  b.active=true; b.dmg=dmg; b.aoe=aoe; b.life=0; b.mesh.visible=true;
+  b.mesh.position.set(ox+dx,oy+dy,oz+dz);
+  b.dir.set(dx,dy,dz);
+  b.mesh.quaternion.setFromUnitVectors(_v2.set(0,1,0), b.dir);
 }
 function updateBolts(dt){
+  let lead=null;
   for(const b of bolts){ if(!b.active) continue; b.life+=dt;
     b.mesh.position.addScaledVector(b.dir, 60*dt);
-    if(b.life>2){ b.active=false; b.mesh.visible=false; b.light.intensity=0; continue; }
+    if(b.life>2){ b.active=false; b.mesh.visible=false; continue; }
+    let det=false;
     // proximity to any enemy
     for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
       if(Math.abs(b.mesh.position.x-e.grp.position.x)<1.2 && Math.abs(b.mesh.position.z-e.grp.position.z)<1.2
          && Math.abs(b.mesh.position.y-(e.grp.position.y+e.bodyY))<1.6){
         wonderBurst(b.mesh.position.x,b.mesh.position.y,b.mesh.position.z, b.dmg, b.aoe);
-        b.active=false; b.mesh.visible=false; b.light.intensity=0; break; } }
+        b.active=false; b.mesh.visible=false; det=true; break; } }
+    if(!det && !lead) lead=b;                          // light follows the lead bolt
   }
+  if(boltLight){ if(lead){ boltLight.position.copy(lead.mesh.position); boltLight.intensity=1.6; }
+                 else boltLight.intensity=0; }
 }
 function wonderBurst(x,y,z,dmg,aoe){
   fxExplosion(x,y,z, 0x9beaff, 0.7); AU.hit();
@@ -999,15 +1017,29 @@ function updateNades(dt){
 }
 
 /* explosion FX pool (reused) */
-const fxPool=[];
+const fxPool=[]; const FX_MAX=6;   // bounded so explosions never add a light mid-combat (recompile)
 function fxExplosion(x,y,z,color,scale){
   let f=fxPool.find(f=>!f.active);
-  if(!f){ const g=KIT.makeExplosion(); scene.add(g); f={grp:g, active:false, t:0, anim:g.userData.update}; fxPool.push(f); }
+  if(!f){ if(fxPool.length>=FX_MAX){ f=fxPool[0]; }            // reuse oldest — never grow past the cap
+    else { const g=KIT.makeExplosion(); scene.add(g); f={grp:g, active:false, t:0, anim:g.userData.update}; fxPool.push(f); } }
   f.grp.position.set(x,y,z); f.grp.scale.setScalar(scale||1); f.grp.visible=true; f.active=true; f.t=0;
 }
 function updateFx(){
   for(const f of fxPool){ if(!f.active) continue; f.t+=STEP;
     if(f.anim) f.anim(f.t); if(f.t>2.1){ f.active=false; f.grp.visible=false; } }
+}
+/* Pre-build the projectile + explosion pools at boot and compile their shaders
+   up front, so the FIRST Wonder shot/burst doesn't allocate meshes/lights mid-
+   combat (which would recompile every shader and stutter). Each makeExplosion()
+   also carries its own PointLight, so seeding the pool fixes the scene light
+   count once and for all. */
+function prewarmFX(){
+  prewarmBolts();
+  while(fxPool.length<FX_MAX){
+    const g=KIT.makeExplosion(); g.visible=false; scene.add(g);
+    fxPool.push({grp:g, active:false, t:0, anim:g.userData.update});
+  }
+  if(renderer && renderer.compile){ try{ renderer.compile(scene, camera); }catch(e){} }
 }
 
 /* ════════════════════ ECONOMY ════════════════════ */
@@ -1514,6 +1546,7 @@ function boot(){
     try{
       G.weapons=[newWeapon('pistol',false)];
       buildEverything();
+      prewarmFX();           // pre-build bolt + explosion pools, compile shaders now
       bindInput(); bindMenus();
       loop();
       G.phase='menu'; showScreen('menu');
@@ -1524,6 +1557,8 @@ function boot(){
 // test/debug hooks
 window.__startRoundForTest=(n)=>{ G.round=n-1; G.intermission=clock.elapsedTime; startRound(n); };
 window.__camera=()=>camera;
+window.__giveWeapon=(t,pap)=>{ giveWeapon(t,!!pap); return curW().type; };
+window.__fireN=(n)=>{ const w=curW(); w.ammo=99999; for(let i=0;i<(n||1);i++){ w.lastShot=-999; fire(); } return curW().type; };
 window.__groundHeightAt=(x,z,refY)=>groundHeightAt(x,z,refY);
 window.__zombies=()=>zombies;
 window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);
