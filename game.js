@@ -127,6 +127,7 @@ const AU = (() => {
 /* ════════════════════ WORLD ════════════════════ */
 let towerDoorPivot=null, doorOpen=false;
 const colliders = [];      // {x,z,r} cylinder colliders for props (cheap)
+const oreBlocks = [];      // minable Minecraft ore blocks {grp,x,y,z,r,hp,maxhp,reward,kind,glow,alive,respawn}
 const interactables = [];  // stations/buys/gates/door
 const pointLights = [];    // capped flickering lights {light, base, ph}
 
@@ -200,6 +201,7 @@ function buildWorld(){
   buildTowerInterior();
   buildBoundaryAndForest();
   buildStations();
+  buildMineZone();
 }
 
 function buildTower(){
@@ -409,6 +411,69 @@ function buildBoundaryAndForest(){
   trees.castShadow=true; scene.add(trees);
 }
 
+/* ════════════════════ MINECRAFT MINE ZONE ════════════════════
+   A blocky mine precinct that EXTENDS the existing map (northwest open ground of
+   the ring). Bulk terrain/trees are InstancedMesh (a few draw calls total); only
+   the minable ore blocks are individual meshes so they can be shot + broken. */
+const MINE = { cx:-40, cz:-34, R:6.5 };     // center + footprint radius (walkable ring, off the stations)
+function buildMineZone(){
+  const cube=new T.BoxGeometry(1,1,1);
+  const grassMat=new T.MeshStandardMaterial({color:0x4a7a32,roughness:0.95});
+  const dirtMat =new T.MeshStandardMaterial({color:0x6b4a2a,roughness:0.97});
+  const stoneMat=new T.MeshStandardMaterial({color:0x6b6b6b,roughness:0.96});
+  const logMat  =new T.MeshStandardMaterial({color:0x6b4a2a,roughness:0.95});
+  const leafMat =new T.MeshStandardMaterial({color:0x3a7a2a,roughness:0.9});
+  const grass=[], dirt=[], stone=[], logs=[], leaves=[];
+  const C=MINE;
+  // stepped blocky mesa (top is grass, body dirt, buried stone) — a landmark you fight around
+  for(let gx=-5;gx<=5;gx++) for(let gz=-5;gz<=5;gz++){
+    const d=Math.hypot(gx,gz); if(d>5.4) continue;
+    const h=Math.max(1, Math.round(4 - d*0.62));
+    for(let y=0;y<h;y++) (y===h-1?grass:dirt).push([C.cx+gx, y+0.5, C.cz+gz]);
+    stone.push([C.cx+gx,-0.5,C.cz+gz]);
+  }
+  // mine entrance: a dark stone-arched shaft cut into the south face of the mesa
+  for(let y=0;y<4;y++) for(let bx=-2;bx<=2;bx++){
+    if(y<3 && bx>-2 && bx<2) continue;                 // hollow doorway
+    stone.push([C.cx+bx, y+0.5, C.cz+5.5]); }
+  const back=new T.Mesh(new T.PlaneGeometry(3,3), new T.MeshBasicMaterial({color:0x05070a}));
+  back.position.set(C.cx,1.5,C.cz+5.05); back.rotation.y=Math.PI; scene.add(back);
+  // a couple of blocky trees flanking the mine
+  [[-8,4],[7,6],[9,-3]].forEach(([tx,tz])=>{
+    for(let y=0;y<4;y++) logs.push([C.cx+tx,y+0.5,C.cz+tz]);
+    for(let lx=-1;lx<=1;lx++) for(let lz=-1;lz<=1;lz++) for(let ly=0;ly<2;ly++){
+      if(lx===0&&lz===0&&ly===0) continue; leaves.push([C.cx+tx+lx,4.5+ly,C.cz+tz+lz]); }
+    leaves.push([C.cx+tx,6.5,C.cz+tz]);
+  });
+  const mk=(arr,mat)=>{ if(!arr.length) return; const im=new T.InstancedMesh(cube,mat,arr.length); const m=new T.Matrix4();
+    arr.forEach((p,i)=>{ m.makeTranslation(p[0],p[1],p[2]); im.setMatrixAt(i,m); });
+    im.instanceMatrix.needsUpdate=true; im.castShadow=im.receiveShadow=true; scene.add(im); };
+  mk(grass,grassMat); mk(dirt,dirtMat); mk(stone,stoneMat); mk(logs,logMat); mk(leaves,leafMat);
+  // collider so the player + enemies path AROUND the mesa (anti-stuck routing handles the rest)
+  colliders.push({x:C.cx, z:C.cz, r:C.R});
+  // minable ore blocks studded around the base (individual meshes — shoot to break)
+  const ores=[ ['coal',60],['iron',90],['iron',90],['gold',160],['redstone',140],['diamond',260],['emerald',220],['gold',160] ];
+  for(let i=0;i<ores.length;i++){ const [kind,reward]=ores[i]; const a=i/ores.length*Math.PI*2;
+    const r=C.R+1.0, x=C.cx+Math.cos(a)*r, z=C.cz+Math.sin(a)*r;
+    const grp=KIT.makeOreBlock(kind); grp.position.set(x,0.5,z); KIT.shadow(grp); scene.add(grp);
+    const hp = 80 + reward*0.6;
+    oreBlocks.push({grp, x, y:0.9, z, r:0.85, hp, maxhp:hp, reward, kind, glow:grp.userData.glow, alive:true, respawn:0});
+  }
+}
+function damageOre(o, dmg){
+  if(!o.alive) return; o.hp-=dmg;
+  if(o.hp<=0){ o.alive=false; o.grp.visible=false; o.respawn=clock.elapsedTime+18;
+    fxExplosion(o.x,o.y,o.z, o.kind==='diamond'?0x6ff0ff:o.kind==='emerald'?0x2ee06a:0xffb060, 0.6);
+    AU.buy(); addPoints(o.reward); toast('MINED '+o.kind.toUpperCase(),'+'+o.reward,'#7fd0ff'); }
+}
+function updateOre(dt){
+  const et=clock.elapsedTime;
+  for(let i=0;i<oreBlocks.length;i++){ const o=oreBlocks[i];
+    if(!o.alive){ if(o.respawn && et>=o.respawn){ o.alive=true; o.hp=o.maxhp; o.respawn=0; o.grp.visible=true; } continue; }
+    if(o.glow) o.glow.emissiveIntensity = 1.4 + Math.sin(et*2.5 + i)*0.5;   // gentle pulse
+  }
+}
+
 // add a capped flickering point light (campfire/lantern)
 function addFireLight(x,z){
   if(pointLights.length>=7) return;
@@ -477,6 +542,7 @@ function spawnValid(x,z,zone){
   if(r>R_OUT-1) return false;
   if(zone==='outside'){
     if(Math.abs(x)<TOWER_H+1 && Math.abs(z)<TOWER_H+1) return false;   // not in the tower body
+    if(Math.hypot(x-MINE.cx,z-MINE.cz) < MINE.R+1) return false;       // not inside the mine mesa
     if(regionLockedAt(x,z)) return false;                              // not in a locked arc
   } else if(zone==='inside'){
     if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                     // in the room, off the column
@@ -868,6 +934,10 @@ function rayHitEnemy(ox,oy,oz, dx,dy,dz, range){
     if(t>0 && t<bestT){ bestT=t; best={boss:true, t}; } }
   if(mega && mega.userData.alive && mega.userData.hatch>1){ const t=sphereT(ox,oy,oz,dx,dy,dz, mega.position.x,mega.position.y+ (mega.userData.hatch>1?12:4),mega.position.z, 4.5, bestT);
     if(t>0 && t<bestT){ bestT=t; best={mega:true, t}; } }
+  // minable ore blocks (shoot to mine)
+  for(let i=0;i<oreBlocks.length;i++){ const o=oreBlocks[i]; if(!o.alive) continue;
+    const t=sphereT(ox,oy,oz,dx,dy,dz, o.x,o.y,o.z, o.r, bestT);
+    if(t>0 && t<bestT){ bestT=t; best={ore:o, t}; } }
   return best;
 }
 function sphereT(ox,oy,oz, dx,dy,dz, cx,cy,cz, r, maxT){
@@ -909,6 +979,7 @@ function fire(){
       if(hit.e) damageEnemy(hit.e, dmg, hit.head);
       else if(hit.boss) damageBoss(dmg);
       else if(hit.mega) damageMega(dmg);
+      else if(hit.ore) damageOre(hit.ore, dmg);
     }
   }
   if(anyHit){ AU.hit(); hitmarker(); }
@@ -1632,6 +1703,7 @@ function simStep(dt){
   updateBolts(dt);
   updateNades(dt);
   updateDrops(dt);
+  updateOre(dt);
   directorTick(dt);
   updateInteraction();
   // expire powerup timers
@@ -1706,6 +1778,7 @@ window.__giveWeapon=(t,pap)=>{ giveWeapon(t,!!pap); return curW().type; };
 window.__fireN=(n)=>{ const w=curW(); w.ammo=99999; for(let i=0;i<(n||1);i++){ w.lastShot=-999; fire(); } return curW().type; };
 window.__spawnKind=(k)=>spawnZombie(k);
 window.__megaInfo=()=> mega&&mega.userData?{alive:!!mega.userData.alive,giga:!!mega.userData.giga,hp:mega.userData.hp,source:mega.userData.source}:null;
+window.__ore=()=>oreBlocks;
 window.__groundHeightAt=(x,z,refY)=>groundHeightAt(x,z,refY);
 window.__zombies=()=>zombies;
 window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);

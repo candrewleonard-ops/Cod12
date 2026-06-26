@@ -664,6 +664,20 @@ class Kit {
       legL.rotation.x=Math.sin(t*4)*0.45; legR.rotation.x=-Math.sin(t*4)*0.45; head.rotation.z=Math.sin(t*2.4)*0.07; };
     return g;
   }
+  // MINE — a Minecraft ore block (stone cube + glowing ore speckles); minable by shooting
+  makeOreBlock(kind){
+    const g=new THREE.Group();
+    g.add(this.box(1,1,1, this.mat(0x6b6b6b,0.95,0)));
+    const cols={coal:0x202020,iron:0xd8b48a,gold:0xffd23a,diamond:0x6ff0ff,redstone:0xff2a2a,emerald:0x2ee06a};
+    const c=cols[kind]||0xffd23a;
+    const glowing = !(kind==='coal'||kind==='iron');
+    const sm = glowing ? this.glow(c,1.8) : this.mat(c,0.7,0.2);
+    const sp=[[0.33,0.18,0.2,'x'],[-0.2,0.3,-0.33,'z'],[0.2,-0.25,0.33,'z'],[-0.33,-0.1,0.18,'x'],[0.15,0.34,-0.2,'y'],[-0.18,-0.34,-0.15,'y'],[0.34,-0.2,-0.1,'x']];
+    for(const p of sp){ const m=this.box(0.26,0.26,0.06, sm); m.position.set(p[0],p[1],p[2]);
+      if(p[3]==='x') m.rotation.y=Math.PI/2; else if(p[3]==='y') m.rotation.x=Math.PI/2; g.add(m); }
+    g.userData.glow = glowing ? sm : null;     // pulse target for the game's updateOre
+    return g;
+  }
   makeRoyalEgg() {
     const g=new THREE.Group();
     const shell=this.mat(0xf0e6c8,0.55,0.1), gold=this.mat(0xd9a441,0.4,0.6);
