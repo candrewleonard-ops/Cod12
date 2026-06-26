@@ -631,6 +631,7 @@ function spawnValid(x,z,zone){
   const lx=x-CAMP_X, lz=z-CAMP_Z, r=Math.hypot(lx,lz);
   if(zone==='outside'){
     if(Math.abs(lx)<TOWER_H+1 && Math.abs(lz)<TOWER_H+1) return false; // not in the tower body
+    if((!megaGate || !megaGate.open) && Math.abs(x-MCX)<MH-3 && Math.abs(z-MCZ)<MH-3) return false; // not trapped in the sealed compound
     if(regionLockedAt(x,z)) return false;                             // not in a locked arc
   } else if(zone==='inside'){
     if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                    // in the room, off the column
@@ -758,7 +759,7 @@ function buildStations(){
         if(G.megaDefeated) return {key:'F', txt:'The egg lies shattered', cost:0, cant:true};
         return {key:'F', txt:'Form the Royal Egg', cost:8000}; },
       run:()=>{ if(!onRoof()||G.megaActive||G.megaDefeated) return false; if(!spend(8000)) return false;
-        spawnMegaBoss(ex, ez+6, roofY); return true; } }); }
+        spawnMegaBoss(CAMP_X+ex, CAMP_Z+ez+6, roofY); return true; } }); }   // world coords (camp is offset)
 
   // BOSS YARD (north, deg 270): wall-buys + mini-boss spawns here
   { const [x,z]=pos(270); addFireLight(x,z+8);
@@ -1374,6 +1375,14 @@ function directorTick(dt){
       }
     }
   }
+  // STRAGGLER SAFETY: wave fully spawned but enemies linger → after a short grace, pull any far/
+  // unreachable zombie to a fresh spawn near the player so the round can never get stuck on "1 left".
+  if(G.toSpawn<=0 && G.aliveCount>0 && !G.bossActive){
+    G.cleanupT=(G.cleanupT||0)+dt;
+    if(G.cleanupT>5){ G.cleanupT=0; const players=getPlayers();
+      for(const e of zombies){ if(!e.alive) continue; const tg=nearestPlayer(e.grp.position.x,e.grp.position.z,players);
+        if(Math.hypot(e.grp.position.x-tg.x, e.grp.position.z-tg.z)>26){ const s=pickSpawn(); e.zone=s[3]||'outside'; e.baseY=s[2]||0; e.grp.position.set(s[0],e.baseY,s[1]); e.noProg=0; e.bestDist=1e9; } } }
+  } else G.cleanupT=0;
 }
 // what to spawn next: mostly walkers, some crawlers, a few villager variants, a 0.1% super-saiyan
 function pickEnemyKind(){
@@ -1504,6 +1513,11 @@ function updateEnemies(dt){
       // melee — only if on roughly the same level as the player
       if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.dmg||14); } }
     }
+    // SAFETY: a zombie that can't get closer to any player for too long (walled off / wedged) is
+    // relocated near the player — guarantees the round can always finish ("1 remaining" can't get stuck).
+    if(pdist>6){ if(pdist < (e.bestDist||1e9)-0.5){ e.bestDist=pdist; e.noProg=0; }
+      else if((e.noProg=(e.noProg||0)+dt) > 9){ const s=pickSpawn(); e.zone=s[3]||'outside'; e.baseY=s[2]||0; e.grp.position.set(s[0],e.baseY,s[1]); e.noProg=0; e.bestDist=1e9; } }
+    else { e.noProg=0; e.bestDist=0; }
     e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
     if(e.anim) e.anim(et + i); // shamble (kit closure)
   }
