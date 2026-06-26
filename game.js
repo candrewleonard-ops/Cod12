@@ -14,9 +14,15 @@ const _fwd = new T.Vector3(), _right = new T.Vector3(), _dir = new T.Vector3();
 const _col = new T.Color();
 
 /* ════════════════════ tunables / world constants ════════════════════ */
-const TOWER_H   = 34;          // tower wall half-extent (footprint ±34)
+const TOWER_H   = 34;          // tower wall half-extent (footprint ±34, CAMP-LOCAL)
 const TOWER_TALL= 34;
-const R_OUT     = 58.5;        // outer walkable radius (fence at 60.5)
+const R_OUT     = 58.5;        // camp-local walkable radius (fence at 60.5, around the camp)
+// ── NEW MAP (ported from designer buildMap): big 300×300 world, tower camp in a corner ──
+const WB        = 150;         // world half-extent (square arena bound)
+const CAMP_X    = -96, CAMP_Z = -96;   // the whole tower camp is translated here
+const MCX       = 55,  MCZ   = 55;     // Minecraft compound center (world-anchored)
+const MH        = 84;          // compound half-size
+const MGAP      = 20;          // south-wall gate gap (faces the camp)
 const PLAYER_R  = 0.6;
 const EYE       = 1.7;
 const STEP      = 1/60;        // fixed sim timestep
@@ -33,6 +39,10 @@ const STAIR_PITCH= STAIR_TOP/STAIR_TURNS; // rise per revolution
 
 /* ════════════════════ engine singletons ════════════════════ */
 let renderer, scene, camera, clock;
+let buildRoot, campGroup;      // camp geometry is added to campGroup (positioned at CAMP) → corner offset
+const inCamp=()=> buildRoot===campGroup;
+const campWX=(x)=> inCamp()? CAMP_X+x : x;     // local→world X for camp colliders/logic
+const campWZ=(z)=> inCamp()? CAMP_Z+z : z;
 let shadowLight, needShadowBake = true;
 const settings = { shadows:true, quality:true, fps:false };
 
@@ -136,6 +146,8 @@ const AU = (() => {
 let towerDoorPivot=null, doorOpen=false;
 const colliders = [];      // {x,z,r} cylinder colliders for props (cheap)
 const oreBlocks = [];      // minable Minecraft ore blocks {grp,x,y,z,r,hp,maxhp,reward,kind,glow,alive,respawn}
+const worldAnims = [];     // per-frame update() callbacks for compound props (cave, giant tree, villagers)
+let giantTree = null, megaGate = null, round25Gate = null;
 const interactables = [];  // stations/buys/gates/door
 const pointLights = [];    // capped flickering lights {light, base, ph}
 
@@ -171,45 +183,112 @@ function mergeManual(geos){
 
 function buildWorld(){
   scene = new T.Scene();
+  buildRoot = scene;                                   // default add target = scene
   scene.background = new T.Color(0x070c14);
-  scene.fog = new T.FogExp2(0x0b1622, 0.018);
+  scene.fog = new T.FogExp2(0x0b1622, 0.0042);         // thin fog for the big 300×300 world
 
   // sky + angry moon (kit)
-  scene.add(KIT.makeSky());
-  const am = KIT.makeAngryMoon(); am.scale.setScalar(10); am.position.set(-18,46,-86); scene.add(am);
-
-  // camera MUST be in the scene graph so its child arms/weapon (first-person viewmodel) render
-  if(camera) scene.add(camera);
-
-  // tower interior flag (false = exterior, true = in tower)
+  buildRoot.add(KIT.makeSky());
+  const am = KIT.makeAngryMoon(); am.scale.setScalar(14); am.position.set(-40,90,-170); buildRoot.add(am);
+  if(camera) buildRoot.add(camera);
   G.inTower = false;
 
-  // lights — ONE shadow-casting directional light (baked once), + ambient.
-  scene.add(new T.AmbientLight(0x223247, 0.85));
+  buildRoot.add(new T.AmbientLight(0x223247, 0.9));
   shadowLight = new T.DirectionalLight(0x9fc2ff, 0.95);
-  shadowLight.position.set(-40,60,-26);
-  shadowLight.castShadow = true;
-  shadowLight.shadow.mapSize.set(2048,2048);
-  Object.assign(shadowLight.shadow.camera,{left:-70,right:70,top:70,bottom:-70,far:200,near:1});
-  scene.add(shadowLight);
-  // soft cool fill from the moon side (no shadow)
-  const fill=new T.DirectionalLight(0x4a6a9c,0.25); fill.position.set(30,20,40); scene.add(fill);
+  shadowLight.position.set(-60,110,-40); shadowLight.castShadow = true; shadowLight.shadow.mapSize.set(2048,2048);
+  Object.assign(shadowLight.shadow.camera,{left:-170,right:170,top:170,bottom:-170,far:460,near:1});
+  buildRoot.add(shadowLight);
+  const fill=new T.DirectionalLight(0x4a6a9c,0.28); fill.position.set(30,30,60); buildRoot.add(fill);
 
-  // ground
-  const ground = new T.Mesh(new T.PlaneGeometry(320,320),
-                            new T.MeshStandardMaterial({color:0x16210f, roughness:0.99}));
-  ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; scene.add(ground);
+  // big green ground covering the whole world
+  const ground = new T.Mesh(new T.PlaneGeometry(WB*2+140, WB*2+140),
+                            new T.MeshStandardMaterial({color:0x3a6b2c, roughness:0.99}));
+  ground.rotation.x=-Math.PI/2; ground.receiveShadow=true; buildRoot.add(ground);
 
-  // ring road
-  const road = new T.Mesh(new T.RingGeometry(34,59,80,1),
-                          new T.MeshStandardMaterial({color:0x2a2418, roughness:0.98}));
-  road.rotation.x=-Math.PI/2; road.position.y=0.02; road.receiveShadow=true; scene.add(road);
-
+  // ════════ TOWER CAMP — built locally, offset to the corner via campGroup ════════
+  campGroup = new T.Group(); campGroup.position.set(CAMP_X,0,CAMP_Z); scene.add(campGroup);
+  buildRoot = campGroup;
+  const road = new T.Mesh(new T.RingGeometry(44,61,80,1), new T.MeshStandardMaterial({color:0x2a2418, roughness:0.98}));
+  road.rotation.x=-Math.PI/2; road.position.y=0.02; road.receiveShadow=true; buildRoot.add(road);
   buildTower();
   buildTowerInterior();
   buildBoundaryAndForest();
   buildStations();
-  buildMineZone();
+  buildRoot = scene;                                   // back to world space
+
+  // ════════ MINECRAFT COMPOUND + road + gates (world-anchored) ════════
+  buildCompound();
+}
+
+// The walled Minecraft compound: rocky walls (south gap), cave, village, giant tree,
+// villagers, blocky forest, the $100k mega-gate, road, and the round-25 portal gate.
+function buildCompound(){
+  const rockMat=new T.MeshStandardMaterial({color:0x8d857a,roughness:1,metalness:0});
+  // ── rocky perimeter walls (4 sides; south wall has the gate gap facing the camp) ──
+  const wallSide=(x1,z1,x2,z2,gapAt)=>{ const dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz),ry=-Math.atan2(dx,dz),n=Math.max(1,Math.floor(len/8));
+    for(let i=0;i<n;i++){ const tc=(i+0.5)/n; if(gapAt!=null && Math.abs(tc-gapAt)<(MGAP/len)) continue;
+      const cx=x1+dx*tc, cz=z1+dz*tc, h=42+(i%3)*8;
+      const seg=new T.Mesh(new T.BoxGeometry(len/n+0.8,h,8), rockMat); seg.position.set(cx,h/2,cz); seg.rotation.y=ry; seg.castShadow=true; seg.receiveShadow=true; scene.add(seg);
+      const pk=new T.Mesh(new T.ConeGeometry(5.5,12,5), rockMat); pk.position.set(cx,h+3,cz); pk.rotation.y=i; scene.add(pk);
+      colliders.push({x:cx, z:cz, r:5}); } };
+  wallSide(MCX-MH,MCZ-MH, MCX+MH,MCZ-MH, 0.16); // south (gap faces camp)
+  wallSide(MCX-MH,MCZ+MH, MCX+MH,MCZ+MH, null); // north
+  wallSide(MCX-MH,MCZ-MH, MCX-MH,MCZ+MH, null); // west
+  wallSide(MCX+MH,MCZ-MH, MCX+MH,MCZ+MH, null); // east
+  // ── cave (ore) ──
+  const cave=KIT.makeCave(); cave.scale.setScalar(1.7); cave.position.set(80,0,90); KIT.shadow(cave); scene.add(cave);
+  if(cave.userData.update) worldAnims.push(cave.userData.update); colliders.push({x:80,z:90,r:13});
+  // ── village houses ──
+  [[40,40,0],[70,46,0.7],[44,72,1.4],[72,76,2.1]].forEach(([hx,hz,ry])=>{ const h=KIT.makeHouse(); h.position.set(hx,0,hz); h.rotation.y=ry; KIT.shadow(h); scene.add(h); colliders.push({x:hx,z:hz,r:3.2}); });
+  // ── giant climbable tree ──
+  giantTree=KIT.makeGiantTree(); giantTree.position.set(56,0,56); KIT.shadow(giantTree); scene.add(giantTree);
+  if(giantTree.userData.update) worldAnims.push(giantTree.userData.update); colliders.push({x:56,z:56,r:6.5});
+  // ── villagers (big chungus) ──
+  [[50,48],[60,52],[52,62]].forEach(p=>{ const v=KIT.makeChungus(); v.scale.setScalar(0.8); v.position.set(p[0],0,p[1]); KIT.shadow(v); scene.add(v); if(v.userData.update) worldAnims.push(v.userData.update); });
+  // ── scattered blocky trees + rocks (count kept modest to bound draw calls) ──
+  for(let i=0;i<26;i++){ const t=KIT.makeBlockyTree(); const a=i*2.39, rr=20+((i*53)%60);
+    const tx=MCX+Math.cos(a)*rr*0.9, tz=MCZ+Math.sin(a)*rr*0.9; t.position.set(tx,0,tz); t.scale.setScalar(0.8+((i*7)%5)/6); KIT.shadow(t); scene.add(t); }
+  const rockGeo=new T.BoxGeometry(3,2.4,3), rkMat=new T.MeshStandardMaterial({color:0x6f7378,roughness:0.98});
+  for(let i=0;i<34;i++){ const a=i*1.9, rr=18+((i*41)%62); const r=new T.Mesh(rockGeo,rkMat);
+    r.position.set(MCX+Math.cos(a)*rr*0.95,1.2,MCZ+Math.sin(a)*rr*0.95); r.rotation.y=i; r.castShadow=r.receiveShadow=true; scene.add(r); }
+  buildMegaGate();
+  buildCompoundRoad();
+}
+// $100,000 mega-gate barricade (same plank style as the buy-gates), in the south wall gap facing the camp
+function buildMegaGate(){
+  const gx=MCX-MH+MGAP*1.34, gz=MCZ-MH;            // world (-2.2, -29)
+  const g=new T.Group(); g.position.set(gx,0,gz);
+  [-10,10].forEach(x=> g.add(KIT.at(KIT.box(3.5,46,5,KIT.mat(0x2a2016,0.95,0)),x,23,0)));   // posts
+  const bars=[];
+  for(let i=0;i<13;i++){ const bar=KIT.at(KIT.box(20,2.8,3.4,KIT.mat(0x4a3a22,0.9,0)),0,2.4+i*3.2,0); g.add(bar); bars.push(bar); }
+  const tag=new T.Mesh(new T.PlaneGeometry(15,3.4), new T.MeshBasicMaterial({map:KIT.label('$100,000','#ffe9a0'),transparent:true})); tag.position.set(0,49,0.4); tag.rotation.y=Math.PI; g.add(tag);
+  KIT.shadow(g); scene.add(g);
+  const gate=addInteractable({ x:gx, z:gz, radius:8, type:'gate', cost:100000, open:false, planks:[], anim:0,
+    label:()=> gate.open?null:{key:'F', txt:'Breach the Mega-Gate', cost:100000},
+    run:()=>{ if(gate.open||!spend(100000)) return false; gate.open=true; g.visible=false; AU.power();
+      toast('MEGA-GATE BREACHED','the forbidden area is open','#ffc24a'); return true; } });
+  colliders.push({x:gx, z:gz, r:11, gate});          // wide solid until paid; cleared on open
+  megaGate=gate;
+}
+// brick road from the mega-gate to the camp + the round-25 obsidian portal gate
+function buildCompoundRoad(){
+  const gx=MCX-MH+MGAP*1.34, gz=MCZ-MH;
+  const px=(t)=>gx-Math.pow(t,1.7)*34, pz=(t)=>(gz+8)+(CAMP_Z-(gz+8))*t;   // curve to the camp
+  const roadMat=new T.MeshStandardMaterial({color:0x5b5f63,roughness:0.95});
+  for(let i=0;i<30;i++){ const x1=px(i/30),z1=pz(i/30),x2=px((i+1)/30),z2=pz((i+1)/30), dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz);
+    const seg=new T.Mesh(new T.BoxGeometry(13,0.3,len+1.4), roadMat); seg.position.set((x1+x2)/2,0.12,(z1+z2)/2); seg.rotation.y=-Math.atan2(dx,dz); seg.receiveShadow=true; scene.add(seg); }
+  // ── round-25 obsidian nether-portal gate on the road (removed when the giga boss dies) ──
+  const TT=0.82, cx=px(TT), cz=pz(TT), dx=px(TT+0.012)-px(TT-0.012), dz=pz(TT+0.012)-pz(TT-0.012);
+  const r25=new T.Group(); r25.position.set(cx,0,cz); r25.rotation.y=-Math.atan2(dx,dz);
+  const obs=KIT.mat(0x150a22,0.6,0.25), FW=13,FH=16,TH=2.4, midY=TH+FH/2;
+  [-(FW/2+TH/2),(FW/2+TH/2)].forEach(x=> r25.add(KIT.at(KIT.box(TH,FH+TH*2,TH,obs),x,midY,0)));
+  r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,TH/2,0)); r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,FH+TH*1.5,0));
+  const portal=new T.Mesh(new T.PlaneGeometry(FW,FH), new T.MeshBasicMaterial({color:0x8c2bd6,transparent:true,opacity:0.7,side:T.DoubleSide})); portal.position.set(0,midY,0); r25.add(portal);
+  const pl=new T.PointLight(0xb24bff,1.3,34); pl.position.set(0,midY,0); r25.add(pl);
+  const tag=new T.Mesh(new T.PlaneGeometry(6,2.4), new T.MeshBasicMaterial({map:KIT.label('RD 25','#e0b0ff'),transparent:true})); tag.position.set(0,FH+TH*2+1.8,0); r25.add(tag);
+  KIT.shadow(r25); scene.add(r25); round25Gate={grp:r25, cleared:false};
+  colliders.push({x:cx, z:cz, r:7, gate:{get open(){ return round25Gate.cleared; }}});  // solid until the giga boss dies
+  worldAnims.push((t)=>{ portal.material.opacity=0.55+Math.sin(t*3)*0.2; pl.intensity=1.0+Math.sin(t*3)*0.4; });
 }
 
 function buildTower(){
@@ -218,30 +297,30 @@ function buildTower(){
   const trimMat=new T.MeshStandardMaterial({color:0x2c3138,roughness:0.8,metalness:0.2});
   const BH=TOWER_H, H=TOWER_TALL, FLOORS=10, FH=H/FLOORS, DOORW=8;
   const wallSeg=(w,x,z,ry)=>{ const m=new T.Mesh(new T.BoxGeometry(w,H,1.4),wallMat);
-    m.position.set(x,H/2,z); m.rotation.y=ry; m.castShadow=true; m.receiveShadow=true; scene.add(m); };
+    m.position.set(x,H/2,z); m.rotation.y=ry; m.castShadow=true; m.receiveShadow=true; buildRoot.add(m); };
   const sideW=(BH*2-DOORW)/2;
   wallSeg(sideW, -(DOORW/2+sideW/2), BH, 0);
   wallSeg(sideW,  (DOORW/2+sideW/2), BH, 0);
-  { const lin=new T.Mesh(new T.BoxGeometry(DOORW+1.2,5,1.5),wallMat); lin.position.set(0,H-2.5,BH); lin.castShadow=true; scene.add(lin); }
+  { const lin=new T.Mesh(new T.BoxGeometry(DOORW+1.2,5,1.5),wallMat); lin.position.set(0,H-2.5,BH); lin.castShadow=true; buildRoot.add(lin); }
   wallSeg(BH*2,0,-BH,0); wallSeg(BH*2,-BH,0,Math.PI/2); wallSeg(BH*2,BH,0,Math.PI/2);
   for(let f=1;f<FLOORS;f++){ const y=f*FH;
-    [[0,BH],[0,-BH]].forEach(p=>{ const bd=new T.Mesh(new T.BoxGeometry(BH*2+0.6,0.5,1.7),bandMat); bd.position.set(p[0],y,p[1]); scene.add(bd); });
-    [[BH,0],[-BH,0]].forEach(p=>{ const bd=new T.Mesh(new T.BoxGeometry(1.7,0.5,BH*2+0.6),bandMat); bd.position.set(p[0],y,p[1]); scene.add(bd); }); }
-  [[BH,BH],[-BH,BH],[BH,-BH],[-BH,-BH]].forEach(p=>{ const pil=new T.Mesh(new T.BoxGeometry(2.4,H,2.4),trimMat); pil.position.set(p[0],H/2,p[1]); pil.castShadow=true; scene.add(pil); });
-  [[0,BH],[0,-BH]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(BH*2+2,1.6,2.2),trimMat); pr.position.set(p[0],H+0.6,p[1]); scene.add(pr); });
-  [[BH,0],[-BH,0]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(2.2,1.6,BH*2+2),trimMat); pr.position.set(p[0],H+0.6,p[1]); scene.add(pr); });
+    [[0,BH],[0,-BH]].forEach(p=>{ const bd=new T.Mesh(new T.BoxGeometry(BH*2+0.6,0.5,1.7),bandMat); bd.position.set(p[0],y,p[1]); buildRoot.add(bd); });
+    [[BH,0],[-BH,0]].forEach(p=>{ const bd=new T.Mesh(new T.BoxGeometry(1.7,0.5,BH*2+0.6),bandMat); bd.position.set(p[0],y,p[1]); buildRoot.add(bd); }); }
+  [[BH,BH],[-BH,BH],[BH,-BH],[-BH,-BH]].forEach(p=>{ const pil=new T.Mesh(new T.BoxGeometry(2.4,H,2.4),trimMat); pil.position.set(p[0],H/2,p[1]); pil.castShadow=true; buildRoot.add(pil); });
+  [[0,BH],[0,-BH]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(BH*2+2,1.6,2.2),trimMat); pr.position.set(p[0],H+0.6,p[1]); buildRoot.add(pr); });
+  [[BH,0],[-BH,0]].forEach(p=>{ const pr=new T.Mesh(new T.BoxGeometry(2.2,1.6,BH*2+2),trimMat); pr.position.set(p[0],H+0.6,p[1]); buildRoot.add(pr); });
   // NOTE: the solid roof slab is gone — the walkable roof (with a central stairwell hole)
   // is built in buildTowerInterior() so you can climb up through it and back down.
   // glowing doorway frame + steps
-  scene.add(KIT.at(KIT.box(DOORW+0.6,0.4,3,KIT.glow(KIT.accentHex,0.5)),0,0.2,BH+1.6));
-  [0,1,2].forEach(i=> scene.add(KIT.at(KIT.box(DOORW+2-i*0.6,0.4,1.0,KIT.mat(0x20242a,0.9,0)),0,0.2,BH+2.4+i*1.0)));
+  buildRoot.add(KIT.at(KIT.box(DOORW+0.6,0.4,3,KIT.glow(KIT.accentHex,0.5)),0,0.2,BH+1.6));
+  [0,1,2].forEach(i=> buildRoot.add(KIT.at(KIT.box(DOORW+2-i*0.6,0.4,1.0,KIT.mat(0x20242a,0.9,0)),0,0.2,BH+2.4+i*1.0)));
   const enter=new T.Mesh(new T.PlaneGeometry(7,1.2), new T.MeshBasicMaterial({map:KIT.label('TOWER','#cdbfff'),transparent:true}));
-  enter.position.set(0,7,BH+0.86); scene.add(enter);
+  enter.position.set(0,7,BH+0.86); buildRoot.add(enter);
   // swinging door
   const doorPivot=new T.Group(); doorPivot.position.set(-DOORW/2,0,BH);
   const door=KIT.box(DOORW,7.5,0.3, KIT.mat(0x3a2a1b,0.85,0)); door.position.set(DOORW/2,3.75,0); doorPivot.add(door);
   for(let i=0;i<4;i++) doorPivot.add(KIT.at(KIT.box(DOORW+0.2,0.26,0.34,KIT.mat(0x2c2014,0.85,0)),DOORW/2,1.0+i*1.9,0));
-  KIT.shadow(doorPivot); scene.add(doorPivot); towerDoorPivot=doorPivot;
+  KIT.shadow(doorPivot); buildRoot.add(doorPivot); towerDoorPivot=doorPivot;
 }
 
 let roofBarrier=null, roofOpen=false; // barrier at the top of the stairs → roof deck
@@ -258,11 +337,11 @@ function buildTowerInterior(){
 
   // interior ground floor
   const gfloor=new T.Mesh(new T.CircleGeometry(BH-1,32),floorMat);
-  gfloor.rotation.x=-Math.PI/2; gfloor.position.y=0.04; gfloor.receiveShadow=true; scene.add(gfloor);
+  gfloor.rotation.x=-Math.PI/2; gfloor.position.y=0.04; gfloor.receiveShadow=true; buildRoot.add(gfloor);
 
   // central column the spiral wraps around (also a collider via STAIR_RIN)
   const col=new T.Mesh(new T.CylinderGeometry(STAIR_RIN-0.4,STAIR_RIN-0.4,H+2,16),wallMat);
-  col.position.set(0,(H+2)/2,0); col.castShadow=true; col.receiveShadow=true; scene.add(col);
+  col.position.set(0,(H+2)/2,0); col.castShadow=true; col.receiveShadow=true; buildRoot.add(col);
 
   // SPIRAL STAIRCASE — instanced steps along the helix the height-field walks on (1 draw call)
   const STEPS=Math.round(STAIR_TURNS*28); // ~28 steps per revolution
@@ -279,8 +358,8 @@ function buildTowerInterior(){
       if(i%4===0 && pi<nPosts){ q.identity();
         _v1.set(Math.cos(a)*(STAIR_ROUT-0.3), y+0.7, Math.sin(a)*(STAIR_ROUT-0.3)); m.compose(_v1,q,sc); posts.setMatrixAt(pi++,m); }
     } }
-  steps.castShadow=steps.receiveShadow=true; scene.add(steps);
-  posts.castShadow=true; scene.add(posts);
+  steps.castShadow=steps.receiveShadow=true; buildRoot.add(steps);
+  posts.castShadow=true; buildRoot.add(posts);
 
   // STAIRCASE BARRICADES — block the climb partway up until you pay to clear them.
   stairGates.length=0;
@@ -294,7 +373,7 @@ function buildTowerInterior(){
     [-1,1].forEach(s=> grp.add(KIT.at(new T.Mesh(new T.BoxGeometry(0.25,2.4,0.25),pm),s*(STAIR_ROUT-STAIR_RIN)/2,1.2,0)));
     grp.add(KIT.at(new T.Mesh(new T.PlaneGeometry(2.2,0.6),
       new T.MeshBasicMaterial({map:KIT.label('$'+cost,'#ffe9a0'),transparent:true,side:T.DoubleSide})),0,2.9,0));
-    scene.add(grp);
+    buildRoot.add(grp);
     const gate={h, a, cx, cz, cost, cleared:false, grp};
     stairGates.push(gate);
     addInteractable({ x:cx, z:cz, radius:4, type:'stairgate', cost, gate,
@@ -308,21 +387,21 @@ function buildTowerInterior(){
   // and walk back down the same way. Top surface at STAIR_TOP+0.5 = the height-field roof level.
   const deckMat=new T.MeshStandardMaterial({color:0x2a2e32,roughness:0.97,side:T.DoubleSide});
   const deck=new T.Mesh(new T.RingGeometry(STAIR_ROUT, BH-1, 40), deckMat);
-  deck.rotation.x=-Math.PI/2; deck.position.y=STAIR_TOP+0.5; deck.receiveShadow=true; scene.add(deck);
+  deck.rotation.x=-Math.PI/2; deck.position.y=STAIR_TOP+0.5; deck.receiveShadow=true; buildRoot.add(deck);
   // parapet rails around the OUTER edge (waist-high, four sides)
   const railGeo=new T.BoxGeometry((BH-1)*1.6,1.0,0.3);
   [0,Math.PI/2,Math.PI,Math.PI*1.5].forEach(a=>{
     const rail=new T.Mesh(railGeo,wallMat);
     rail.position.set(Math.cos(a)*(BH-1.2),STAIR_TOP+1.0,Math.sin(a)*(BH-1.2));
-    rail.rotation.y=a; rail.castShadow=true; scene.add(rail);
+    rail.rotation.y=a; rail.castShadow=true; buildRoot.add(rail);
   });
   G.rooftopY = STAIR_TOP+0.5;
 
   // interior lighting (2 static lamps, no flicker) so the climb reads clearly
   const lampMat=KIT.glow(0xffd9a0,1.6);
   [[0,4,STAIR_RMID+2],[0,STAIR_TOP-3,-STAIR_RMID-2]].forEach(p=>{
-    const lp=new T.PointLight(0xffce8a,1.5,34,2); lp.position.set(p[0],p[1],p[2]); scene.add(lp);
-    const bulb=new T.Mesh(new T.SphereGeometry(0.3,8,8),lampMat); bulb.position.set(p[0],p[1],p[2]); scene.add(bulb);
+    const lp=new T.PointLight(0xffce8a,1.5,34,2); lp.position.set(p[0],p[1],p[2]); buildRoot.add(lp);
+    const bulb=new T.Mesh(new T.SphereGeometry(0.3,8,8),lampMat); bulb.position.set(p[0],p[1],p[2]); buildRoot.add(bulb);
   });
 
   // ROOF BARRICADE — a fence ringing the hole rim. Blocks you from stepping out onto the roof
@@ -337,7 +416,7 @@ function buildTowerInterior(){
       rail.position.set(Math.cos(a)*(STAIR_ROUT+0.1),STAIR_TOP+1.6,Math.sin(a)*(STAIR_ROUT+0.1)); rail.rotation.y=-a; bgrp.add(rail); } }
   bgrp.add(KIT.at(new T.Mesh(new T.PlaneGeometry(3.4,0.8),
     new T.MeshBasicMaterial({map:KIT.label('ROOF 3000','#ffe9a0'),transparent:true,side:T.DoubleSide})),0,STAIR_TOP+2.6,STAIR_ROUT+0.2));
-  scene.add(bgrp); roofBarrier=bgrp;
+  buildRoot.add(bgrp); roofBarrier=bgrp;
 
   // interact gate to the roof — prompt shows only when you're up at the top of the stairs
   addInteractable({ x:0, z:0, radius:STAIR_ROUT+2, type:'roofgate', cost:3000,
@@ -352,13 +431,14 @@ function buildTowerInterior(){
    floor beneath them (you climb), but you never teleport up more than one step. */
 const STEP_UP=1.7;
 function groundHeightAt(x,z, refY){
-  if(Math.abs(x)>=TOWER_H || Math.abs(z)>=TOWER_H) return 0; // outside tower → open ground
+  const lx=x-CAMP_X, lz=z-CAMP_Z;                            // tower/stairs are CAMP-LOCAL
+  if(Math.abs(lx)>=TOWER_H || Math.abs(lz)>=TOWER_H) return 0; // outside tower → open ground
   refY=refY||0;
-  const r=Math.hypot(x,z), cap=refY+STEP_UP;
+  const r=Math.hypot(lx,lz), cap=refY+STEP_UP;
   let best=0;                                                // ground floor: always underfoot
   // spiral ramp (annulus only)
   if(r>=STAIR_RIN && r<=STAIR_ROUT){
-    let th=Math.atan2(z,x); if(th<0) th+=Math.PI*2;          // 0..2π
+    let th=Math.atan2(lz,lx); if(th<0) th+=Math.PI*2;        // 0..2π
     const maxK=Math.ceil(STAIR_TURNS)+1;
     for(let k=0;k<=maxK;k++){
       const h=((th+k*Math.PI*2)/(Math.PI*2))*STAIR_PITCH;
@@ -375,9 +455,10 @@ function groundHeightAt(x,z, refY){
 }
 // raw spiral height at (x,z) nearest refY (ignores barricade cap) — used to block stepping past a gate
 function spiralHeightAt(x,z, refY){
-  const r=Math.hypot(x,z); if(r<STAIR_RIN||r>STAIR_ROUT) return 0;
+  const lx=x-CAMP_X, lz=z-CAMP_Z;
+  const r=Math.hypot(lx,lz); if(r<STAIR_RIN||r>STAIR_ROUT) return 0;
   refY=refY||0; const cap=refY+STEP_UP; let best=0;
-  let th=Math.atan2(z,x); if(th<0) th+=Math.PI*2;
+  let th=Math.atan2(lz,lx); if(th<0) th+=Math.PI*2;
   const maxK=Math.ceil(STAIR_TURNS)+1;
   for(let k=0;k<=maxK;k++){ const h=((th+k*Math.PI*2)/(Math.PI*2))*STAIR_PITCH;
     if(h>STAIR_TOP+0.5) break; if(h<=cap && h>best) best=h; }
@@ -399,7 +480,7 @@ function buildBoundaryAndForest(){
     const a2=(i+1)/seg*Math.PI*2, mx=(Math.cos(a)+Math.cos(a2))/2*FR, mz=(Math.sin(a)+Math.sin(a2))/2*FR;
     const ry=-Math.atan2(Math.cos(a2)-Math.cos(a),Math.sin(a2)-Math.sin(a));
     [0.5,0.95].forEach(yy=>{ e.set(0,ry,0); q.setFromEuler(e); _v1.set(mx,yy,mz); m.compose(_v1,q,s); rails.setMatrixAt(ri++,m); }); q.identity(); }
-  posts.castShadow=rails.castShadow=true; scene.add(posts); scene.add(rails);
+  posts.castShadow=rails.castShadow=true; buildRoot.add(posts); buildRoot.add(rails);
 
   // BOULDERS — instanced
   const bGeo=new T.DodecahedronGeometry(1,0); const bMat=new T.MeshStandardMaterial({color:0x2a2e30,roughness:0.97,metalness:0.1});
@@ -407,7 +488,7 @@ function buildBoundaryAndForest(){
   for(let i=0;i<bN;i++){ const a=(i/bN)*Math.PI*2+0.1, r=57+Math.random()*1.5, sc=0.8+Math.random()*0.8;
     s.set(sc,sc*0.8,sc); e.set(0,Math.random()*Math.PI,0); q.setFromEuler(e); _v1.set(Math.cos(a)*r,sc*0.4,Math.sin(a)*r);
     m.compose(_v1,q,s); boulders.setMatrixAt(i,m); } q.identity(); s.set(1,1,1);
-  boulders.castShadow=boulders.receiveShadow=true; scene.add(boulders);
+  boulders.castShadow=boulders.receiveShadow=true; buildRoot.add(boulders);
 
   // FOREST — instanced merged trees beyond the fence
   const treeGeo=mergedTreeGeometry();
@@ -416,7 +497,7 @@ function buildBoundaryAndForest(){
   for(let i=0;i<tN;i++){ const a=Math.random()*Math.PI*2, r=64+Math.random()*70, sc=0.9+Math.random()*1.8;
     s.set(sc,sc,sc); e.set(0,Math.random()*Math.PI,0); q.setFromEuler(e); _v1.set(Math.cos(a)*r,0,Math.sin(a)*r);
     m.compose(_v1,q,s); trees.setMatrixAt(i,m); } q.identity(); s.set(1,1,1);
-  trees.castShadow=true; scene.add(trees);
+  trees.castShadow=true; buildRoot.add(trees);
 }
 
 /* ════════════════════ MINECRAFT MINE ZONE ════════════════════
@@ -445,7 +526,7 @@ function buildMineZone(){
     if(y<3 && bx>-2 && bx<2) continue;                 // hollow doorway
     stone.push([C.cx+bx, y+0.5, C.cz+5.5]); }
   const back=new T.Mesh(new T.PlaneGeometry(3,3), new T.MeshBasicMaterial({color:0x05070a}));
-  back.position.set(C.cx,1.5,C.cz+5.05); back.rotation.y=Math.PI; scene.add(back);
+  back.position.set(C.cx,1.5,C.cz+5.05); back.rotation.y=Math.PI; buildRoot.add(back);
   // a couple of blocky trees flanking the mine
   [[-8,4],[7,6],[9,-3]].forEach(([tx,tz])=>{
     for(let y=0;y<4;y++) logs.push([C.cx+tx,y+0.5,C.cz+tz]);
@@ -455,7 +536,7 @@ function buildMineZone(){
   });
   const mk=(arr,mat)=>{ if(!arr.length) return; const im=new T.InstancedMesh(cube,mat,arr.length); const m=new T.Matrix4();
     arr.forEach((p,i)=>{ m.makeTranslation(p[0],p[1],p[2]); im.setMatrixAt(i,m); });
-    im.instanceMatrix.needsUpdate=true; im.castShadow=im.receiveShadow=true; scene.add(im); };
+    im.instanceMatrix.needsUpdate=true; im.castShadow=im.receiveShadow=true; buildRoot.add(im); };
   mk(grass,grassMat); mk(dirt,dirtMat); mk(stone,stoneMat); mk(logs,logMat); mk(leaves,leafMat);
   // collider so the player + enemies path AROUND the mesa (anti-stuck routing handles the rest)
   colliders.push({x:C.cx, z:C.cz, r:C.R});
@@ -463,7 +544,7 @@ function buildMineZone(){
   const ores=[ ['coal',60],['iron',90],['iron',90],['gold',160],['redstone',140],['diamond',260],['emerald',220],['gold',160] ];
   for(let i=0;i<ores.length;i++){ const [kind,reward]=ores[i]; const a=i/ores.length*Math.PI*2;
     const r=C.R+1.0, x=C.cx+Math.cos(a)*r, z=C.cz+Math.sin(a)*r;
-    const grp=KIT.makeOreBlock(kind); grp.position.set(x,0.5,z); KIT.shadow(grp); scene.add(grp);
+    const grp=KIT.makeOreBlock(kind); grp.position.set(x,0.5,z); KIT.shadow(grp); buildRoot.add(grp);
     const hp = 80 + reward*0.6;
     oreBlocks.push({grp, x, y:0.9, z, r:0.85, hp, maxhp:hp, reward, kind, glow:grp.userData.glow, alive:true, respawn:0});
   }
@@ -488,10 +569,10 @@ function addFireLight(x,z){
   const g=new T.Group();
   const flame=new T.Mesh(new T.ConeGeometry(0.5,1.4,8), KIT.glow(0xff8a1e,2.1)); flame.position.y=0.85; g.add(flame);
   for(let i=0;i<6;i++){ const a=i/6*Math.PI*2; g.add(KIT.at(KIT.box(0.4,0.28,0.4,KIT.mat(0x3a3a3a,0.95,0)),Math.cos(a)*1.0,0.14,Math.sin(a)*1.0)); }
-  g.position.set(x,0,z); scene.add(g);
-  const lp=new T.PointLight(0xff7a2a,2.2,20,2); lp.position.set(x,1.4,z); scene.add(lp);
+  g.position.set(x,0,z); buildRoot.add(g);
+  const lp=new T.PointLight(0xff7a2a,2.2,20,2); lp.position.set(x,1.4,z); buildRoot.add(lp);
   pointLights.push({light:lp, flame, base:2.2, ph:x});
-  colliders.push({x,z,r:1.4});
+  colliders.push({x:campWX(x),z:campWZ(z),r:1.4});
 }
 
 window.__SE = { pap:false }; // kit's makeArms reads window.__SE for pap occasionally
@@ -515,7 +596,7 @@ function unlockSpawnsNear(deg){ if(!G.spawnPoints) return;
 function playerZone(){
   const y=G.eyeY||EYE;
   if(y > STAIR_TOP-4) return 'roof';
-  if(Math.abs(camera.position.x)<TOWER_H && Math.abs(camera.position.z)<TOWER_H && y<10) return 'inside';
+  if(Math.abs(camera.position.x-CAMP_X)<TOWER_H && Math.abs(camera.position.z-CAMP_Z)<TOWER_H && y<10) return 'inside';
   return 'outside';
 }
 /* ── Player-relative spawning (multiplayer-ready) ──────────────────────────────
@@ -538,7 +619,7 @@ function spawnTargetPlayer(){ const ps=getPlayers(); return ps[(Math.random()*ps
 // you haven't paid into yet.
 function regionLockedAt(x,z){
   if(!G.spawnPoints) return false;
-  const deg=Math.atan2(z,x)*180/Math.PI;
+  const deg=Math.atan2(z-CAMP_Z, x-CAMP_X)*180/Math.PI;
   let near=null, best=1e9;
   for(const s of G.spawnPoints){ if(s.zone!=='outside') continue;
     const d=angDist(s.deg,deg); if(d<best){ best=d; near=s; } }
@@ -546,16 +627,15 @@ function regionLockedAt(x,z){
 }
 // is (x,z) a legal standing spot for an enemy in this zone (walkable, unlocked) ?
 function spawnValid(x,z,zone){
-  const r=Math.hypot(x,z);
-  if(r>R_OUT-1) return false;
+  if(Math.abs(x)>WB-4 || Math.abs(z)>WB-4) return false;              // inside the world box
+  const lx=x-CAMP_X, lz=z-CAMP_Z, r=Math.hypot(lx,lz);
   if(zone==='outside'){
-    if(Math.abs(x)<TOWER_H+1 && Math.abs(z)<TOWER_H+1) return false;   // not in the tower body
-    if(Math.hypot(x-MINE.cx,z-MINE.cz) < MINE.R+1) return false;       // not inside the mine mesa
-    if(regionLockedAt(x,z)) return false;                              // not in a locked arc
+    if(Math.abs(lx)<TOWER_H+1 && Math.abs(lz)<TOWER_H+1) return false; // not in the tower body
+    if(regionLockedAt(x,z)) return false;                             // not in a locked arc
   } else if(zone==='inside'){
-    if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                     // in the room, off the column
+    if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                    // in the room, off the column
   } else if(zone==='roof'){
-    if(r<STAIR_ROUT+1.5 || r>TOWER_H-2.5) return false;                // on the deck ring
+    if(r<STAIR_ROUT+1.5 || r>TOWER_H-2.5) return false;               // on the deck ring
   }
   return true;
 }
@@ -587,8 +667,10 @@ function pickSpawn(){
   return [s.x+(Math.random()-0.5)*jit, s.z+(Math.random()-0.5)*jit, s.y||baseY, zone];
 }
 
-function addInteractable(o){ interactables.push(o); if(o.group){ KIT.shadow(o.group); scene.add(o.group);}
-  if(o.collide) colliders.push({x:o.x,z:o.z,r:o.collide}); return o; }
+function addInteractable(o){ interactables.push(o);
+  o.wx=campWX(o.x); o.wz=campWZ(o.z);                 // world position (camp-offset aware) for prompts/collision
+  if(o.group){ KIT.shadow(o.group); buildRoot.add(o.group);}
+  if(o.collide) colliders.push({x:o.wx,z:o.wz,r:o.collide}); return o; }
 
 function buildStations(){
   // SOUTH spawn hub (deg 90 → +z): power, crate, PaP by the door, campfire, pickups
@@ -636,11 +718,11 @@ function buildStations(){
   for(let i=0;i<NSP;i++){ const deg=i*(360/NSP);
     const x=Math.cos(deg*Math.PI/180)*46, z=Math.sin(deg*Math.PI/180)*46;
     const dHub=angDist(deg,90);            // angular distance to the start hub (90°)
-    G.spawnPoints.push({x,z,deg,zone:'outside',y:0,locked:dHub>52}); }
+    G.spawnPoints.push({x:campWX(x),z:campWZ(z),deg,zone:'outside',y:0,locked:dHub>52}); }
   // interior ground-floor spawns (zombies appear in the room when you're inside)
-  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2; G.spawnPoints.push({x:Math.cos(a)*24,z:Math.sin(a)*24,deg:0,zone:'inside',y:0,locked:false}); }
+  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2; G.spawnPoints.push({x:campWX(Math.cos(a)*24),z:campWZ(Math.sin(a)*24),deg:0,zone:'inside',y:0,locked:false}); }
   // rooftop spawns (zombies to train near the roof dog when you're up top)
-  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2+0.3; G.spawnPoints.push({x:Math.cos(a)*26,z:Math.sin(a)*26,deg:0,zone:'roof',y:STAIR_TOP+0.5,locked:false}); }
+  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2+0.3; G.spawnPoints.push({x:campWX(Math.cos(a)*26),z:campWZ(Math.sin(a)*26),deg:0,zone:'roof',y:STAIR_TOP+0.5,locked:false}); }
 
   // JUGGERNAUT PERK (early, south side, no gate)
   { const [x,z]=pos(90+20); const g=KIT.makePerkMachine(['JUGGERNAUT'],0x8B4513,0xff6b35);
@@ -668,9 +750,9 @@ function buildStations(){
       run:()=> onRoof() && packAPunch(), anim:g.userData.update }); }
   // ROOF EGG ALTAR — pay to FORM the Royal Egg; it hatches into the Mega Pingas Boss (health bar)
   { const ex=-22, ez=0;
-    const altar=KIT.box(4,1.2,4, KIT.mat(0x2a1a3a,0.8,0.2)); altar.position.set(ex,roofY+0.2,ez); scene.add(altar);
-    const orb=new T.Mesh(new T.SphereGeometry(0.6,12,12), KIT.glow(0xff48c0,1.8)); orb.position.set(ex,roofY+1.6,ez); scene.add(orb);
-    const al=new T.PointLight(0xff48c0,1.6,18,2); al.position.set(ex,roofY+2.4,ez); scene.add(al);
+    const altar=KIT.box(4,1.2,4, KIT.mat(0x2a1a3a,0.8,0.2)); altar.position.set(ex,roofY+0.2,ez); buildRoot.add(altar);
+    const orb=new T.Mesh(new T.SphereGeometry(0.6,12,12), KIT.glow(0xff48c0,1.8)); orb.position.set(ex,roofY+1.6,ez); buildRoot.add(orb);
+    const al=new T.PointLight(0xff48c0,1.6,18,2); al.position.set(ex,roofY+2.4,ez); buildRoot.add(al);
     addInteractable({ x:ex, z:ez, radius:4.5, type:'eggaltar', cost:8000,
       label:()=>{ if(!onRoof()) return null; if(G.megaActive) return null;
         if(G.megaDefeated) return {key:'F', txt:'The egg lies shattered', cost:0, cant:true};
@@ -681,7 +763,7 @@ function buildStations(){
   // BOSS YARD (north, deg 270): wall-buys + mini-boss spawns here
   { const [x,z]=pos(270); addFireLight(x,z+8);
     addWallBuy(x+9,z,'ak',2500); addWallBuy(x-9,z,'rifle',2000);
-    G.bossYard={x,z}; }
+    G.bossYard={x:campWX(x),z:campWZ(z)}; }
   // East deep-woods (deg 30): lmg wall + wonder via crate only
   { const [x,z]=pos(30); addWallBuy(x,z+7,'lmg',6000); addFireLight(x+6,z); }
 
@@ -695,9 +777,9 @@ function buildWallDogs(){
   const mk=(x,y,z,ry,zone,kind,max)=>{
     const g=KIT.makeWerewolf(); g.scale.setScalar(1.0); g.position.set(x,y,z); g.rotation.y=ry;
     g.userData.max=max; if(g.userData.feed) g.userData.feed(0);
-    scene.add(g);
+    buildRoot.add(g);
     // accent light so the beast reads in the dark interior / on the roof
-    const dl=new T.PointLight(0xffb060, 1.4, 16, 2); dl.position.set(x, y+1, z+3); scene.add(dl);
+    const dl=new T.PointLight(0xffb060, 1.4, 16, 2); dl.position.set(x, y+1, z+3); buildRoot.add(dl);
     const dog={grp:g, ud:g.userData, x, y, z, zone, kind, hr:20, fed:0};
     wallDogs.push(dog);
     addInteractable({ x, z, radius:5, type:'walldog', dog,
@@ -767,7 +849,7 @@ function addGate(deg,price){
     run:()=>{ if(gate.open) return false; if(!spend(price)) return false; gate.open=true; gate.anim=0.0001; AU.buy();
       unlockSpawnsNear(deg); toast('PATH CLEARED','new spawn ground opened'); return true; } });
   // physical block so the player can't walk through until it's cleared (removed on open)
-  colliders.push({x, z, r:3.0, gate});
+  colliders.push({x:campWX(x), z:campWZ(z), r:3.0, gate});
   return gate;
 }
 
@@ -806,7 +888,7 @@ function poolEntry(kind){
   const grp = makeEnemyModel(kind);
   // enemies don't cast dynamic shadows (perf) → cheap blob instead
   grp.add(makeBlob());
-  grp.visible=false; scene.add(grp);
+  grp.visible=false; buildRoot.add(grp);
   return { grp, anim:grp.userData.update, kind, isCrawler, alive:false,
            hp:0, speed:0, atkCd:0, dieT:0, riseT:0, zone:'outside', baseY:0, dmg:14,
            px:0, pz:0, stuckT:0, side:1, lastDist:1e9,   // stuck-detection + wall-follow state
@@ -861,7 +943,7 @@ function spawnZombie(kind){
 }
 
 function spawnMiniBoss(){
-  if(!boss){ boss=KIT.makeBoss(); boss.add(makeBlob()); scene.add(boss); }
+  if(!boss){ boss=KIT.makeBoss(); boss.add(makeBlob()); buildRoot.add(boss); }
   const yd=G.bossYard||{x:0,z:-52};
   boss.position.set(yd.x,0,yd.z); boss.scale.setScalar(0.01); boss.visible=true;
   boss.userData.hp = 900 + G.round*220; boss.userData.maxhp=boss.userData.hp;
@@ -877,7 +959,7 @@ function spawnMegaBoss(px, pz, py, opts){
   if(!mega || !!mega.userData.giga !== wantGiga){
     if(mega) scene.remove(mega);
     mega = wantGiga ? KIT.makeGigaBoss() : KIT.makeRoyalEgg();
-    scene.add(mega);
+    buildRoot.add(mega);
   }
   const scale=opts.scale||3.0; mega.scale.setScalar(scale);
   const yd = (px!=null)? {x:px,z:pz} : (G.bossYard||{x:0,z:-52});
@@ -1007,10 +1089,10 @@ function prewarmBolts(){
   const geo=new T.CylinderGeometry(0.06,0.06,1.4,8);   // shared across all bolts
   const mat=KIT.glow(0x9beaff,2.8);                    // shared material
   for(let i=0;i<BOLT_MAX;i++){
-    const m=new T.Mesh(geo,mat); m.visible=false; scene.add(m);
+    const m=new T.Mesh(geo,mat); m.visible=false; buildRoot.add(m);
     bolts.push({mesh:m, active:false, dmg:0, aoe:0, life:0, dir:new T.Vector3()});
   }
-  boltLight=new T.PointLight(0x9beaff,0,7,2); scene.add(boltLight); // one shared light
+  boltLight=new T.PointLight(0x9beaff,0,7,2); buildRoot.add(boltLight); // one shared light
 }
 function spawnBolt(ox,oy,oz,dx,dy,dz,dmg,aoe){
   if(!bolts.length) prewarmBolts();                    // safety net; normally pre-warmed
@@ -1066,7 +1148,7 @@ function throwAxe(k){
   const w=curW(); if(w.ammo<=0){ axe.phase='idle'; return; } w.ammo--; updateAmmoHUD();
   AU.shoot('axe'); axe.phase='out'; axe.t=0; axe.dist=2+k*14; axe.k=k;
   if(arms&&arms.userData.weapon) arms.userData.weapon.visible=false;
-  if(!axe.proj){ axe.proj=KIT.makeWeapon('axe',w.pap); axe.proj.scale.setScalar(0.62); scene.add(axe.proj);
+  if(!axe.proj){ axe.proj=KIT.makeWeapon('axe',w.pap); axe.proj.scale.setScalar(0.62); buildRoot.add(axe.proj);
     axe.plight=new T.PointLight(0xff3a14,2,8,2); axe.proj.add(axe.plight); }
   axe.proj.visible=true;
   camera.getWorldDirection(_dir);
@@ -1120,7 +1202,8 @@ function damageMega(dmg){ if(!mega||!mega.userData.alive) return; mega.userData.
     if(src==='lvl12'){ G.lvl12Done=true; G.bunkerUnlocked=true; addPoints(2500);
       toast('PINGAS BOSS DOWN','BUNKER UNLOCKED · the siege continues','#ff48c0'); }
     else if(src==='lvl25'){ G.lvl25Done=true; addPoints(6000);
-      toast('GIGA PINGAS DOWN','+6000 · endless siege rolls on','#ff48c0'); }
+      if(round25Gate){ round25Gate.cleared=true; round25Gate.grp.visible=false; }   // round-25 portal opens
+      toast('GIGA PINGAS DOWN','+6000 · round-25 gate open','#ff48c0'); }
     else { G.megaDefeated=true; addPoints(3000); toast('PINGAS BOSS DOWN','+3000','#ff48c0'); }
     updateBossBar(); checkRoundProgress();   // resume the waves — the game never ends now
   } }
@@ -1133,7 +1216,7 @@ function spawnDrop(x,z){
   if(kind==='instakill') grp=KIT.makeSkullDrop();
   else if(kind==='chips') grp=KIT.makePingasChips();
   else { grp=KIT.makePickups(); grp.scale.setScalar(0.6); }
-  grp.position.set(x,1.1,z); scene.add(grp);
+  grp.position.set(x,1.1,z); buildRoot.add(grp);
   drops.push({grp, kind, t:0, x, z, anim:grp.userData.update});
 }
 function updateDrops(dt){
@@ -1159,7 +1242,7 @@ function applyDrop(kind){
 const nades=[]; let nadeCount=4;
 function throwGrenade(){
   if(nadeCount<=0) return; nadeCount--;
-  const g=KIT.makeGrenade(); scene.add(g);
+  const g=KIT.makeGrenade(); buildRoot.add(g);
   camera.getWorldDirection(_dir);
   const n={grp:g, vx:_dir.x*22, vy:8, vz:_dir.z*22, t:0};
   g.position.copy(camera.position);
@@ -1185,7 +1268,7 @@ const fxPool=[]; const FX_MAX=6;   // bounded so explosions never add a light mi
 function fxExplosion(x,y,z,color,scale){
   let f=fxPool.find(f=>!f.active);
   if(!f){ if(fxPool.length>=FX_MAX){ f=fxPool[0]; }            // reuse oldest — never grow past the cap
-    else { const g=KIT.makeExplosion(); scene.add(g); f={grp:g, active:false, t:0, anim:g.userData.update}; fxPool.push(f); } }
+    else { const g=KIT.makeExplosion(); buildRoot.add(g); f={grp:g, active:false, t:0, anim:g.userData.update}; fxPool.push(f); } }
   f.grp.position.set(x,y,z); f.grp.scale.setScalar(scale||1); f.grp.visible=true; f.active=true; f.t=0;
 }
 function updateFx(){
@@ -1200,7 +1283,7 @@ function updateFx(){
 function prewarmFX(){
   prewarmBolts();
   while(fxPool.length<FX_MAX){
-    const g=KIT.makeExplosion(); g.visible=false; scene.add(g);
+    const g=KIT.makeExplosion(); g.visible=false; buildRoot.add(g);
     fxPool.push({grp:g, active:false, t:0, anim:g.userData.update});
   }
   if(renderer && renderer.compile){ try{ renderer.compile(scene, camera); }catch(e){} }
@@ -1298,37 +1381,35 @@ function pickEnemyKind(){
 
 /* ════════════════════ ENEMY AI (fixed-step) ════════════════════ */
 function clampArena(x,z, rad, isPlayer, playerY){
-  // outer radius
-  const r=Math.hypot(x,z); if(r>R_OUT){ x*=R_OUT/r; z*=R_OUT/r; }
+  // square WORLD boundary (the big 300×300 arena)
+  const lim=WB-2;
+  if(x>lim) x=lim; else if(x<-lim) x=-lim;
+  if(z>lim) z=lim; else if(z<-lim) z=-lim;
+  // tower collision is CAMP-LOCAL (the camp is offset to the corner)
+  let lx=x-CAMP_X, lz=z-CAMP_Z;
   const W=TOWER_H;
   if(isPlayer){
-    // HOLLOW tower: collide with the 4 thin walls (door gap on the south wall when open),
-    // so the player can walk INSIDE and climb. Slabs only act within ±(t) of each wall line.
     const t=0.7+rad;
-    if(Math.abs(z)<=W && Math.abs(x+W)<t){ x = (x+W<0)? -W-t : -W+t; } // west wall x=-W
-    if(Math.abs(z)<=W && Math.abs(x-W)<t){ x = (x-W>0)?  W+t :  W-t; } // east wall x=+W
-    if(Math.abs(x)<=W && Math.abs(z+W)<t){ z = (z+W<0)? -W-t : -W+t; } // north wall z=-W
-    const inDoorGap = doorOpen && Math.abs(x)<4;                        // south wall z=+W (door)
-    if(!inDoorGap && Math.abs(x)<=W && Math.abs(z-W)<t){ z = (z-W>0)? W+t : W-t; }
-    // interior features (only when actually inside the footprint)
-    if(Math.abs(x)<W && Math.abs(z)<W){
-      const ir=Math.hypot(x,z);
-      if(ir<STAIR_RIN+rad && ir>0.001){ const f=(STAIR_RIN+rad)/ir; x*=f; z*=f; }      // central column
-      else if(!roofOpen && (playerY||0) > STAIR_TOP-3+EYE && ir>STAIR_ROUT-1){           // roof barricade
-        const f=(STAIR_ROUT-1)/ir; x*=f; z*=f; }
+    if(Math.abs(lz)<=W && Math.abs(lx+W)<t){ lx = (lx+W<0)? -W-t : -W+t; } // west wall
+    if(Math.abs(lz)<=W && Math.abs(lx-W)<t){ lx = (lx-W>0)?  W+t :  W-t; } // east wall
+    if(Math.abs(lx)<=W && Math.abs(lz+W)<t){ lz = (lz+W<0)? -W-t : -W+t; } // north wall
+    const inDoorGap = doorOpen && Math.abs(lx)<4;                          // south door
+    if(!inDoorGap && Math.abs(lx)<=W && Math.abs(lz-W)<t){ lz = (lz-W>0)? W+t : W-t; }
+    if(Math.abs(lx)<W && Math.abs(lz)<W){
+      const ir=Math.hypot(lx,lz);
+      if(ir<STAIR_RIN+rad && ir>0.001){ const f=(STAIR_RIN+rad)/ir; lx*=f; lz*=f; }
+      else if(!roofOpen && (playerY||0) > STAIR_TOP-3+EYE && ir>STAIR_ROUT-1){ const f=(STAIR_ROUT-1)/ir; lx*=f; lz*=f; }
     }
   } else {
-    // enemies: tower is solid EXCEPT the south doorway when it's open, so the horde can
-    // actually chase you inside (mirrors the player's door gap above). The gap only opens
-    // on the +z (south) wall within |x|<3.5; N/E/W walls stay solid so they can't leak through.
     const h=W+rad;
-    if(Math.abs(x)<h && Math.abs(z)<h){
-      const dx=h-Math.abs(x), dz=h-Math.abs(z);
-      const atSouthDoor = doorOpen && Math.abs(x)<3.5 && z>0 && dz<=dx;
-      if(!atSouthDoor){ if(dx<dz) x=(x<0?-h:h); else z=(z<0?-h:h); }
+    if(Math.abs(lx)<h && Math.abs(lz)<h){
+      const dx=h-Math.abs(lx), dz=h-Math.abs(lz);
+      const atSouthDoor = doorOpen && Math.abs(lx)<3.5 && lz>0 && dz<=dx;
+      if(!atSouthDoor){ if(dx<dz) lx=(lx<0?-h:h); else lz=(lz<0?-h:h); }
     }
   }
-  // prop colliders (gate colliders disappear once the gate is opened)
+  x=CAMP_X+lx; z=CAMP_Z+lz;
+  // prop colliders (world coords; gate colliders disappear once the gate is opened)
   for(let i=0;i<colliders.length;i++){ const c=colliders[i];
     if(c.gate && c.gate.open) continue;
     const ddx=x-c.x, ddz=z-c.z, dd=Math.hypot(ddx,ddz), min=c.r+rad;
@@ -1340,16 +1421,18 @@ function clampArena(x,z, rad, isPlayer, playerY){
 // off the column; 'roof' = stay on the deck ring (don't fall through the hole).
 function clampEnemy(x,z, rad, zone){
   if(zone==='inside'){
-    const r=Math.hypot(x,z); const maxR=TOWER_H-1.5;
-    if(r>maxR){ x*=maxR/r; z*=maxR/r; }
-    const minR=STAIR_RIN+rad; const r2=Math.hypot(x,z);
-    if(r2<minR && r2>0.001){ const f=minR/r2; x*=f; z*=f; }
-    _v3.set(x,0,z); return _v3;
+    let lx=x-CAMP_X, lz=z-CAMP_Z;
+    const r=Math.hypot(lx,lz); const maxR=TOWER_H-1.5;
+    if(r>maxR){ lx*=maxR/r; lz*=maxR/r; }
+    const minR=STAIR_RIN+rad; const r2=Math.hypot(lx,lz);
+    if(r2<minR && r2>0.001){ const f=minR/r2; lx*=f; lz*=f; }
+    _v3.set(CAMP_X+lx,0,CAMP_Z+lz); return _v3;
   }
   if(zone==='roof'){
-    const r=Math.hypot(x,z)||0.001; const inR=STAIR_ROUT+1.2, outR=TOWER_H-2.5;
-    if(r<inR){ const f=inR/r; x*=f; z*=f; } else if(r>outR){ const f=outR/r; x*=f; z*=f; }
-    _v3.set(x,0,z); return _v3;
+    let lx=x-CAMP_X, lz=z-CAMP_Z;
+    const r=Math.hypot(lx,lz)||0.001; const inR=STAIR_ROUT+1.2, outR=TOWER_H-2.5;
+    if(r<inR){ const f=inR/r; lx*=f; lz*=f; } else if(r>outR){ const f=outR/r; lx*=f; lz*=f; }
+    _v3.set(CAMP_X+lx,0,CAMP_Z+lz); return _v3;
   }
   return clampArena(x,z,rad,false);
 }
@@ -1363,16 +1446,16 @@ function routeWaypoint(e,tgt){
   const TZ=tgt.zone||'outside';
   if(e.zone===TZ) return tgt;
   if(doorOpen){
-    if(e.zone==='outside' && (TZ==='inside'||TZ==='roof')) return {x:0,z:TOWER_H-2};  // step inside
-    if(e.zone==='inside'  && TZ==='outside')               return {x:0,z:TOWER_H+2};  // step outside
+    if(e.zone==='outside' && (TZ==='inside'||TZ==='roof')) return {x:CAMP_X,z:CAMP_Z+TOWER_H-2};  // step inside
+    if(e.zone==='inside'  && TZ==='outside')               return {x:CAMP_X,z:CAMP_Z+TOWER_H+2};  // step outside
   }
   return tgt;
 }
 // flip an enemy's zone as it crosses the open south doorway (both sides are ground level)
 function maybeCrossDoor(e,nx,nz){
-  if(!doorOpen || Math.abs(nx)>=3.4) return;
-  if(e.zone==='outside' && nz < TOWER_H-0.2){ e.zone='inside';  e.baseY=0; }
-  else if(e.zone==='inside' && nz > TOWER_H+0.2){ e.zone='outside'; e.baseY=0; }
+  if(!doorOpen || Math.abs(nx-CAMP_X)>=3.4) return;
+  if(e.zone==='outside' && (nz-CAMP_Z) < TOWER_H-0.2){ e.zone='inside';  e.baseY=0; }
+  else if(e.zone==='inside' && (nz-CAMP_Z) > TOWER_H+0.2){ e.zone='outside'; e.baseY=0; }
 }
 function updateEnemies(dt){
   const players=getPlayers(), et=clock.elapsedTime;
@@ -1518,7 +1601,7 @@ let nearInteract=null;
 let _justLocked=false;   // guards the first mouse delta after pointer-lock (prevents view snap)
 function updateInteraction(){
   const px=camera.position.x, pz=camera.position.z; let found=null, fd=99;
-  for(const it of interactables){ const d=Math.hypot(px-it.x, pz-it.z);
+  for(const it of interactables){ const d=Math.hypot(px-(it.wx!=null?it.wx:it.x), pz-(it.wz!=null?it.wz:it.z));
     if(d<it.radius && d<fd){ const lbl=it.label&&it.label(); if(lbl){ found=it; fd=d; found._lbl=lbl; } } }
   nearInteract=found; renderPrompt(found?found._lbl:null);
 }
@@ -1640,7 +1723,7 @@ function resetRun(){
   if(G.spawnPoints) for(const sp of G.spawnPoints){ sp.locked = (sp.zone==='outside') && angDist(sp.deg,90)>52; }
   for(const it of interactables){ if(it.type==='gate'){ it.open=false; it.anim=0;
     for(const pk of it.planks){ pk.mesh.visible=true; pk.mesh.position.y=pk.cy; pk.mesh.rotation.z=pk.cr; } } }
-  camera.position.set(pos(90)[0], EYE, pos(90)[1]-3); G.yaw=Math.PI; G.pitch=0; G.eyeY=EYE; G.vy=0;
+  camera.position.set(CAMP_X+pos(90)[0], EYE, CAMP_Z+pos(90)[1]-3); G.yaw=Math.PI; G.pitch=0; G.eyeY=EYE; G.vy=0;
   camera.rotation.order='YXZ'; camera.rotation.set(0,G.yaw,0);
   buildPlayerArms(); updateHealthHUD(); updatePointsHUD(); updateAmmoHUD(); updatePerksHUD(); updateZleftHUD();
 }
@@ -1716,6 +1799,7 @@ function simStep(dt){
   updateNades(dt);
   updateDrops(dt);
   updateOre(dt);
+  { const et=clock.elapsedTime; for(let i=0;i<worldAnims.length;i++) worldAnims[i](et); }  // compound props
   directorTick(dt);
   updateInteraction();
   // expire powerup timers
