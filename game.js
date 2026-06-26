@@ -432,9 +432,12 @@ function buildTowerInterior(){
    surface you can step onto (≤ refY+STEP_UP) — so the gently-rising stairs win over the flat
    floor beneath them (you climb), but you never teleport up more than one step. */
 const STEP_UP=1.7;
+function groundPlusBlocks(base,x,z,cap){ // stand on top of placed build blocks
+  if(typeof placedBlocks==='undefined' || !placedBlocks.size) return base;
+  const bt=blockTopColumn(x,z,cap); return bt>base?bt:base; }
 function groundHeightAt(x,z, refY){
   const lx=x-CAMP_X, lz=z-CAMP_Z;                            // tower/stairs are CAMP-LOCAL
-  if(Math.abs(lx)>=TOWER_H || Math.abs(lz)>=TOWER_H) return 0; // outside tower → open ground
+  if(Math.abs(lx)>=TOWER_H || Math.abs(lz)>=TOWER_H) return groundPlusBlocks(0,x,z,(refY||0)+STEP_UP); // outside tower → open ground (+ build blocks)
   refY=refY||0;
   const r=Math.hypot(lx,lz), cap=refY+STEP_UP;
   let best=0;                                                // ground floor: always underfoot
@@ -453,7 +456,7 @@ function groundHeightAt(x,z, refY){
   if(r>=STAIR_ROUT && r<=TOWER_H-1){ const h=STAIR_TOP+0.5; if(h<=cap && h>best) best=h; }
   // uncleared staircase barricades cap how high you can climb
   const cc=climbCap(); if(best>cc) best=cc;
-  return best;
+  return groundPlusBlocks(best,x,z,cap);
 }
 // raw spiral height at (x,z) nearest refY (ignores barricade cap) — used to block stepping past a gate
 function spiralHeightAt(x,z, refY){
@@ -1063,6 +1066,7 @@ function fire(){
       else if(hit.mega) damageMega(dmg);
       else if(hit.ore) damageOre(hit.ore, dmg);
       AU.hit(); hitmarker(); }
+    else { mineLook(d.dmg*(w.superUpgrade?2:1)); }   // missed the undead → mine the tree/rock/block you swung at
     addPoints(5); return;
   }
   if(w.ammo<=0){ AU.dry(); flashReloadHint(); return; }
@@ -1363,9 +1367,9 @@ function applySuperUpgrade(){
 }
 function diamondSuperUpgrade(){
   // direct path: spend 3 diamond blocks, then super-upgrade current weapon
-  if((G.inventory.diamondblock||0)<3){ toast('NEED 3 DIAMOND BLOCKS','craft them from 9 diamonds each','#4fe8e0'); return false; }
+  if(invCount('diamondblock')<3){ toast('NEED 3 DIAMOND BLOCKS','craft them from 9 diamonds each','#4fe8e0'); return false; }
   const w=curW(); if(!w || w.superUpgrade){ toast('CANT UPGRADE','already super-upgraded','#4fe8e0'); return false; }
-  G.inventory.diamondblock-=3; if(typeof mcRenderBag==='function') mcRenderBag();
+  invRemove('diamondblock',3);
   return applySuperUpgrade();
 }
 if(typeof window!=='undefined') window.__diamondSuper=diamondSuperUpgrade;
@@ -1478,6 +1482,11 @@ function clampArena(x,z, rad, isPlayer, playerY){
     if(c.gate && c.gate.open) continue;
     const ddx=x-c.x, ddz=z-c.z, dd=Math.hypot(ddx,ddz), min=c.r+rad;
     if(dd<min && dd>0.0001){ x=c.x+ddx/dd*min; z=c.z+ddz/dd*min; } }
+  // placed build blocks (voxel collision) — push the player/enemy out of any non-steppable block
+  if(typeof placedBlocks!=='undefined' && placedBlocks.size){
+    const fY = isPlayer ? (G.footY||0) : 0, eY = isPlayer ? (playerY||G.eyeY||EYE) : 1.7;
+    const r=resolveBlockCollision(x,z,fY,eY,rad); x=r[0]; z=r[1];
+  }
   _v3.set(x,0,z); return _v3;
 }
 
@@ -1558,6 +1567,7 @@ function updateEnemies(dt){
       const c=clampEnemy(e.grp.position.x+st[0]*sp, e.grp.position.z+st[1]*sp, 0.5, e.zone);
       maybeCrossDoor(e, c.x, c.z);
       e.grp.position.x=c.x; e.grp.position.z=c.z;
+      if(e.zone==='outside') enemyAttackBlocks(e, dt);    // chew through any player-built blocks in the way
     } else {
       // melee — only if on roughly the same level as the player
       if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.dmg||14); } }
@@ -1778,29 +1788,101 @@ function flashReloadHint(show){ $('reloadHint').style.opacity = show? '1':'0'; }
 function setCharge(k){ $('chargebar').style.width=(k*120)+'px'; }
 
 /* ════════════════════ INPUT / POINTER LOCK ════════════════════ */
-/* ════════════════════ MINECRAFT MODE — inventory + 3×3 crafting ════════════════════ */
-const MC_TYPES = ['cobblestone','wood','plank','coal','steel','obsidian','pingasore','diamond','diamondblock'];
-const MC_ORE_DROP = { coal:'coal', iron:'steel', gold:'pingasore', redstone:'obsidian', diamond:'diamond', emerald:'pingasore' };
+/* ════════════════════ MINECRAFT BUILD MODE — inventory · hotbar · mining · building · crafting ════════════════════
+   Slot-based inventory (20 main + 5 hotbar + 3×3 craft), stacks of 64, drag + right-click-drop-one,
+   mine trees/rocks/ore, place 1×1 voxels with structural support + per-material HP, eat to heal. */
+const STK = 64;                 // default stack size
+const BS  = 0.5;                // voxel size (matches the kit's makeMcBlock 0.5u cube)
+
+// ── item registry: every block / material / food / gun, with player-facing descriptions ──
+const MC_ITEMS = {
+  // building blocks (placeable)
+  stone:       { name:'STONE',        kind:'block', stack:64, place:true,  hp:60,   desc:'Sturdy build block (60 HP). Mined from rocks.' },
+  cobblestone: { name:'COBBLESTONE',  kind:'block', stack:64, place:true,  hp:55,   desc:'Rough stone build block (55 HP).' },
+  wood:        { name:'WOOD',         kind:'block', stack:64, place:true,  hp:40,   desc:'Log. Build with it or craft planks (40 HP).' },
+  plank:       { name:'PLANKS',       kind:'block', stack:64, place:true,  hp:35,   desc:'Cut wood. Build, or craft sticks/doors (35 HP).' },
+  glass:       { name:'GLASS',        kind:'block', stack:64, place:true,  hp:12,   desc:'See-through block — lets light in. Fragile (12 HP).' },
+  dirt:        { name:'DIRT',         kind:'block', stack:64, place:true,  hp:20,   desc:'Plantable soil. Plant wheat on it (20 HP).' },
+  grass:       { name:'GRASS',        kind:'block', stack:64, place:true,  hp:20,   desc:'Grassy dirt block (20 HP).' },
+  brick:       { name:'BRICK',        kind:'block', stack:64, place:true,  hp:120,  desc:'Tough crafted block (120 HP). Great walls.' },
+  obsidian:    { name:'OBSIDIAN',     kind:'block', stack:64, place:true,  hp:1000, desc:'Nearly indestructible — 1000 HP. The best wall.' },
+  diamondblock:{ name:'DIAMOND BLOCK',kind:'block', stack:64, place:true,  hp:300,  desc:'Pure diamond block (300 HP). 3 make a Super Upgrade.' },
+  leaves:      { name:'LEAVES',       kind:'block', stack:64, place:true,  hp:15,   desc:'Leafy block (15 HP). Decorative cover.' },
+  door:        { name:'DOOR',         kind:'block', stack:64, place:true,  hp:50,   desc:'Placeable door — right-click it to open/close (50 HP).' },
+  // materials (not placeable)
+  coal:        { name:'COAL',         kind:'mat',  stack:64, place:false, desc:'Fuel & crafting material. Mined from rocks.' },
+  iron:        { name:'IRON',         kind:'mat',  stack:64, place:false, desc:'Metal material from rocks. Used for obsidian.' },
+  diamond:     { name:'DIAMOND',      kind:'mat',  stack:64, place:false, desc:'Rare gem from the cave. Tools & super-upgrades.' },
+  stick:       { name:'STICK',        kind:'mat',  stack:64, place:false, desc:'Crafting material — combine for tools.' },
+  wheat:       { name:'WHEAT',        kind:'mat',  stack:64, place:false, desc:'Harvested crop. 3 in a row craft Bread.' },
+  pingasore:   { name:'PINGAS ORE',   kind:'mat',  stack:64, place:false, desc:'Glowing ore from the cave.' },
+  // food
+  bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
+  // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
+  pistol:{ name:'M1911', kind:'gun', stack:1, place:false, desc:'Starter sidearm.' },
+  pickaxe:{ name:'PICKAXE', kind:'gun', stack:1, place:false, desc:'Melee tool — mines blocks & swings at the undead (130 pts/kill).' },
+  diapick:{ name:'DIAMOND PICKAXE', kind:'gun', stack:1, place:false, desc:'Upgraded pickaxe — big melee + faster mining.' },
+  smg:{ name:'MP-40', kind:'gun', stack:1, place:false, desc:'Wall-buy SMG.' },
+  shotgun:{ name:'TRENCH GUN', kind:'gun', stack:1, place:false, desc:'Close-range shotgun.' },
+  sniper:{ name:'SNIPER', kind:'gun', stack:1, place:false, desc:'Scoped bolt-action.' },
+  ak:{ name:'AK', kind:'gun', stack:1, place:false, desc:'Assault rifle.' },
+  lmg:{ name:'LMG', kind:'gun', stack:1, place:false, desc:'Belt-fed machine gun.' },
+  wonder:{ name:'DG WONDERWAFFE', kind:'gun', stack:1, place:false, desc:'Wonder weapon — chain lightning.' },
+};
+function itemDef(id){ return id?MC_ITEMS[id]:null; }
+function itemStack(id){ const d=itemDef(id); return d?(d.stack||STK):STK; }
+function isPlaceable(id){ const d=itemDef(id); return !!(d&&d.place); }
+function itemName(id){ const d=itemDef(id); return d?d.name:(id||'').toUpperCase(); }
+
+// ── crafting recipes (shaped 3×3, matched after trimming empty rows/cols) ──
 const MC_RECIPES = [
-  { name:'Planks',         out:{type:'plank',  count:4}, shape:[['wood']] },
-  { name:'Crafting Bench', out:{type:'bench',  count:1}, shape:[['plank','plank'],['plank','plank']] },
-  { name:'Coal Block',     out:{type:'coal',   count:1}, shape:[['coal','coal','coal'],['coal','coal','coal'],['coal','coal','coal']] },
-  { name:'Steel Ingot',    out:{type:'steel',  count:2}, shape:[['cobblestone','coal'],['coal','cobblestone']] },
-  { name:'Obsidian',       out:{type:'obsidian',count:1}, shape:[['cobblestone','steel','cobblestone'],['steel','coal','steel'],['cobblestone','steel','cobblestone']] },
-  { name:'Diamond',        out:{type:'diamond',count:1}, shape:[['obsidian','pingasore','obsidian'],['pingasore','steel','pingasore'],['obsidian','pingasore','obsidian']] },
-  { name:'Pingas Core',    out:{type:'pingasore',count:1}, shape:[['','diamond',''],['diamond','obsidian','diamond'],['','diamond','']] },
-  { name:'Diamond Block',  out:{type:'diamondblock',count:1}, shape:[['diamond','diamond','diamond'],['diamond','diamond','diamond'],['diamond','diamond','diamond']] },
-  { name:'Diamond Pickaxe',out:{type:'diapick',     count:1}, shape:[['diamond','diamond','diamond'],['','plank',''],['','plank','']] },
-  { name:'Super Upgrade',  out:{type:'super',       count:1}, shape:[['diamondblock','diamondblock','diamondblock']] },
+  { name:'Planks',         desc:'1 wood → 4 planks',                 out:{type:'plank',count:4},        shape:[['wood']] },
+  { name:'Sticks',         desc:'2 planks → 4 sticks',               out:{type:'stick',count:4},        shape:[['plank'],['plank']] },
+  { name:'Glass',          desc:'1 stone + 2 coal → 2 glass',        out:{type:'glass',count:2},        shape:[['stone','coal','coal']] },
+  { name:'Door',           desc:'2 wood → 1 door',                   out:{type:'door',count:1},         shape:[['wood','wood']] },
+  { name:'Bread',          desc:'3 wheat in a row → 1 bread (heals to full)', out:{type:'bread',count:1}, shape:[['wheat','wheat','wheat']] },
+  { name:'Bricks',         desc:'4 stone (2×2) → 4 bricks (tough)',  out:{type:'brick',count:4},        shape:[['stone','stone'],['stone','stone']] },
+  { name:'Obsidian',       desc:'stone ring + coal + iron core → 1 obsidian (1000 HP)', out:{type:'obsidian',count:1},
+      shape:[['stone','coal','stone'],['coal','iron','coal'],['stone','coal','stone']] },
+  { name:'Diamond Block',  desc:'9 diamonds → 1 diamond block',      out:{type:'diamondblock',count:1}, shape:[['diamond','diamond','diamond'],['diamond','diamond','diamond'],['diamond','diamond','diamond']] },
+  { name:'Diamond Pickaxe',desc:'3 diamonds + 2 planks → upgrade your pickaxe', out:{type:'diapick',count:1}, shape:[['diamond','diamond','diamond'],['','plank',''],['','plank','']] },
+  { name:'Super Upgrade',  desc:'3 diamond blocks → 2× damage + 30% fire-rate on your held weapon', out:{type:'super',count:1}, shape:[['diamondblock','diamondblock','diamondblock']] },
+  { name:'House Kit',      desc:'planks + door + wood → build a house in front of you', out:{type:'housekit',count:1},
+      shape:[['plank','plank','plank'],['plank','door','plank'],['wood','wood','wood']] },
 ];
-G.mcGrid = new Array(9).fill(null);
-let mcSel = null, mcMatch = null;
-function mcInitInventory(){ G.inventory = { cobblestone:16, wood:8, plank:0, coal:6, steel:4, obsidian:2, pingasore:1, diamond:0, diamondblock:0 }; }
-function mcGiveBlock(type, n){ if(!G.inventory || !MC_TYPES.includes(type)) return; G.inventory[type]=(G.inventory[type]||0)+(n||1);
-  if(G.minecraftMode && !$('mcInv').classList.contains('hidden')) mcRenderBag(); }
-function mcOnMined(kind){ const t=MC_ORE_DROP[kind]; if(t) mcGiveBlock(t,1); mcGiveBlock('cobblestone',1); }
-function mcBlkHTML(type){ return '<div class="mcBlk" data-t="'+type+'"></div>'; }
-function mcNormalize(){ let cells=[]; for(let r=0;r<3;r++) cells.push([G.mcGrid[r*3],G.mcGrid[r*3+1],G.mcGrid[r*3+2]]);
+function mcRecipeBookHTML(){
+  return MC_RECIPES.map(r=>{
+    const t = (r.out.type==='diapick')?'diapick' : (r.out.type==='super')?'super' : (r.out.type==='housekit')?'plank' : r.out.type;
+    return '<div class="recipeRow"><div class="mcBlk" data-t="'+t+'"></div>'
+      + '<div class="rInfo"><div class="rName">'+r.name+(r.out.count>1?' ×'+r.out.count:'')+'</div>'
+      + '<div class="rDesc">'+r.desc+'</div></div></div>';
+  }).join('');
+}
+
+// ── inventory state: slots hold {id,n} or null ──
+const INV = { main:new Array(20).fill(null), hot:new Array(5).fill(null), craft:new Array(9).fill(null), held:null, sel:0 };
+function slotsForZone(z){ return z==='main'?INV.main : z==='hot'?INV.hot : z==='craft'?INV.craft : null; }
+function invCount(id){ let n=0; for(const z of [INV.hot,INV.main]) for(const s of z) if(s&&s.id===id) n+=s.n; return n; }
+// add up to n of id into hotbar(item slots 2-4) then main; returns leftover that didn't fit
+function invAdd(id,n){ const d=itemDef(id); if(!d||d.kind==='gun') return n; const max=itemStack(id);
+  const fill=(arr,lo)=>{ for(let i=lo;i<arr.length&&n>0;i++){ const s=arr[i]; if(s&&s.id===id&&s.n<max){ const t=Math.min(max-s.n,n); s.n+=t; n-=t; } } };
+  const empty=(arr,lo)=>{ for(let i=lo;i<arr.length&&n>0;i++){ if(!arr[i]){ const t=Math.min(max,n); arr[i]={id,n:t}; n-=t; } } };
+  fill(INV.hot,2); fill(INV.main,0); empty(INV.hot,2); empty(INV.main,0);
+  if(G.phase==='inv') renderInv(); renderHotbar(); return n; }
+function invRemove(id,n){ // remove up to n; returns amount actually removed
+  let got=0; for(const arr of [INV.hot,INV.main]) for(let i=0;i<arr.length;i++){ const s=arr[i]; if(s&&s.id===id){ const t=Math.min(s.n,n-got); s.n-=t; got+=t; if(s.n<=0) arr[i]=null; if(got>=n) return got; } }
+  if(G.phase==='inv') renderInv(); renderHotbar(); return got; }
+
+// ── slot HTML ──
+function mcBlkHTML(id){ if(!id) return ''; const d=itemDef(id);
+  if(d&&d.kind==='gun') return '<div class="mcBlk gunChip" data-t="'+id+'"><span>'+(d.name||id).slice(0,3)+'</span></div>';
+  return '<div class="mcBlk" data-t="'+id+'"></div>'; }
+function slotInner(s){ if(!s) return ''; return mcBlkHTML(s.id)+(s.n>1?'<span class="mcCount">'+s.n+'</span>':''); }
+
+// ── crafting: read INV.craft ids, match a recipe ──
+let mcMatch=null;
+function craftId(i){ return INV.craft[i]?INV.craft[i].id:''; }
+function mcNormalize(){ let cells=[]; for(let r=0;r<3;r++) cells.push([craftId(r*3),craftId(r*3+1),craftId(r*3+2)]);
   if(!cells.some(row=>row.some(c=>c))) return null;
   while(cells.length && cells[0].every(c=>!c)) cells.shift();
   while(cells.length && cells[cells.length-1].every(c=>!c)) cells.pop();
@@ -1811,35 +1893,260 @@ function mcShapesEqual(a,b){ if(a.length!==b.length) return false;
   for(let r=0;r<a.length;r++){ if(a[r].length!==b[r].length) return false; for(let c=0;c<a[r].length;c++) if((a[r][c]||'')!==(b[r][c]||'')) return false; } return true; }
 function mcEvalRecipe(){ const norm=mcNormalize(); mcMatch=null;
   if(norm) for(const rec of MC_RECIPES) if(mcShapesEqual(norm,rec.shape)){ mcMatch=rec; break; }
-  const rs=$('mcResult'), rn=$('mcResultName'), btn=$('mcCraftBtn');
-  if(mcMatch){ rs.innerHTML=mcBlkHTML(mcMatch.out.type)+(mcMatch.out.count>1?'<span class="mcCount">'+mcMatch.out.count+'</span>':''); rs.classList.add('ready'); rn.textContent=mcMatch.name; btn.disabled=false; }
-  else { rs.innerHTML=''; rs.classList.remove('ready'); rn.textContent='—'; btn.disabled=true; } }
-function mcSetCell(i,type){ if(type){ if(!G.inventory[type]) return; G.inventory[type]--; }
-  if(G.mcGrid[i]) G.inventory[G.mcGrid[i]]=(G.inventory[G.mcGrid[i]]||0)+1;
-  G.mcGrid[i]=type||null; mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
-function mcClearGrid(){ for(let i=0;i<9;i++) if(G.mcGrid[i]){ G.inventory[G.mcGrid[i]]++; G.mcGrid[i]=null; } mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
-function mcCraft(){ if(!mcMatch) return; for(let i=0;i<9;i++) G.mcGrid[i]=null; const o=mcMatch.out;
+  const rs=$('mcCraftResult'), rn=$('mcCraftName'), btn=$('mcCraftBtn');
+  if(!rs) return;
+  if(mcMatch){ const o=mcMatch.out; const t=(o.type==='diapick')?'diapick':(o.type==='super')?'super':(o.type==='housekit')?'plank':o.type;
+    rs.innerHTML=mcBlkHTML(t)+(o.count>1?'<span class="mcCount">'+o.count+'</span>':''); rs.classList.add('ready');
+    if(rn) rn.textContent=mcMatch.name; if(btn) btn.disabled=false; }
+  else { rs.innerHTML=''; rs.classList.remove('ready'); if(rn) rn.textContent='—'; if(btn) btn.disabled=true; } }
+function mcCraft(){ if(!mcMatch) return; const rec=mcMatch, o=rec.out;   // capture before invAdd re-evaluates the grid
+  for(let i=0;i<9;i++){ const s=INV.craft[i]; if(s){ s.n--; if(s.n<=0) INV.craft[i]=null; } }  // consume one per filled cell
   if(o.type==='diapick'){ upgradeToDiamondPick(); }
-  else if(o.type==='super'){ applySuperUpgrade(); }                 // grid already consumed the 3 diamond blocks
-  else if(o.type==='bench') G.inventory.bench=(G.inventory.bench||0)+o.count; else mcGiveBlock(o.type,o.count);
-  if(AU&&AU.buy) AU.buy(); toast('CRAFTED '+mcMatch.name.toUpperCase(),'+'+o.count,'#9fd0ff'); mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
-function mcRenderGrid(){ document.querySelectorAll('#mcGrid .mcSlot').forEach(el=>{ const t=G.mcGrid[+el.dataset.grid]; el.innerHTML=t?mcBlkHTML(t):''; }); }
-function mcRenderBag(){ const bag=$('mcBag'); bag.innerHTML=''; const all=MC_TYPES.concat(G.inventory.bench?['bench']:[]);
-  all.forEach(type=>{ const n=G.inventory[type]||0; const el=document.createElement('div');
-    el.className='mcSlot'+(n<=0?' empty':'')+(mcSel===type?' sel':''); el.dataset.bag=type;
-    el.innerHTML=mcBlkHTML(type)+(n>0?'<span class="mcCount">'+n+'</span>':''); if(n<=0) el.querySelector('.mcBlk').style.opacity='.25'; bag.appendChild(el); }); }
-function mcOpen(){ if(!G.minecraftMode || G.phase!=='play') return; G.phase='inv';
-  document.exitPointerLock&&document.exitPointerLock(); $('mcInv').classList.remove('hidden'); mcSel=null; mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
-function mcClose(){ if(G.phase!=='inv') return; mcClearGrid(); $('mcInv').classList.add('hidden'); G.phase='play'; lockMouse(); }
+  else if(o.type==='super'){ applySuperUpgrade(); }
+  else if(o.type==='housekit'){ placeHousePrefabInFront(); }
+  else invAdd(o.type,o.count);
+  if(AU&&AU.buy) AU.buy(); toast('CRAFTED '+rec.name.toUpperCase(), o.type==='super'||o.type==='diapick'||o.type==='housekit'?'':'+'+o.count, '#9fd0ff');
+  renderInv(); renderHotbar(); mcEvalRecipe(); }
+
+// ── rendering ──
+function renderZone(zone){ const arr=slotsForZone(zone); if(!arr) return;
+  document.querySelectorAll('#mcInv [data-'+zone+']').forEach(el=>{ const i=+el.dataset[zone]; el.innerHTML=slotInner(arr[i]); }); }
+function renderInv(){ renderZone('main'); renderZone('hot'); renderZone('craft'); mcEvalRecipe(); }
+function renderHotbar(){ const bar=$('hotbar'); if(!bar) return;
+  for(let i=0;i<5;i++){ const cell=bar.querySelector('[data-hotslot="'+i+'"]'); if(!cell) continue;
+    const ic=cell.querySelector('.hicon'), cn=cell.querySelector('.hcount');
+    let id=null,n=0;
+    if(i<2){ const w=G.weapons[i]; if(w){ id=w.type; n=0; } }   // gun slots mirror G.weapons
+    else { const s=INV.hot[i]; if(s){ id=s.id; n=s.n; } }
+    ic.innerHTML = id?mcBlkHTML(id):''; cn.textContent = n>1?n:'';
+    cell.classList.toggle('sel', i===INV.sel); }
+}
+let _heldEl=null;
+function updateHeldCursor(x,y){ if(!_heldEl) _heldEl=$('mcHeld'); if(!_heldEl) return;
+  if(INV.held){ _heldEl.classList.remove('hidden'); _heldEl.innerHTML=slotInner(INV.held);
+    if(x!=null){ _heldEl.style.left=x+'px'; _heldEl.style.top=y+'px'; } }
+  else _heldEl.classList.add('hidden'); }
+
+// ── drag / click logic (left = whole stack, right = one) ──
+function slotGet(zone,i){ const arr=slotsForZone(zone); return arr?arr[i]:null; }
+function slotSet(zone,i,v){ const arr=slotsForZone(zone); if(arr) arr[i]=v; }
+function slotClick(zone,i,right){
+  // hotbar gun slots (0,1) are not editable via drag — selecting them just equips the gun
+  if(zone==='hot' && i<2){ hotSelect(i); return; }
+  const cur=slotGet(zone,i), held=INV.held;
+  if(right){
+    if(held){ // drop ONE of held into this slot
+      if(!cur){ slotSet(zone,i,{id:held.id,n:1}); held.n--; }
+      else if(cur.id===held.id && cur.n<itemStack(cur.id)){ cur.n++; held.n--; }
+      if(held.n<=0) INV.held=null;
+    } else if(cur){ // pick up HALF
+      const take=Math.ceil(cur.n/2); INV.held={id:cur.id,n:take}; cur.n-=take; if(cur.n<=0) slotSet(zone,i,null);
+    }
+  } else {
+    if(held){
+      if(!cur){ slotSet(zone,i,held); INV.held=null; }
+      else if(cur.id===held.id){ const max=itemStack(cur.id), room=max-cur.n; const t=Math.min(room,held.n); cur.n+=t; held.n-=t; if(held.n<=0) INV.held=null; }
+      else { slotSet(zone,i,held); INV.held=cur; }       // swap
+    } else if(cur){ INV.held=cur; slotSet(zone,i,null); } // pick up whole stack
+  }
+  renderInv(); renderHotbar(); updateHeldCursor();
+}
+function mcReturnHeldAndCraft(){ // when closing: dump held + craft grid back into inventory
+  for(let i=0;i<9;i++){ const s=INV.craft[i]; if(s){ const left=invAdd(s.id,s.n); INV.craft[i]=null; } }
+  if(INV.held){ invAdd(INV.held.id,INV.held.n); INV.held=null; }
+}
+
+// ── open / close ──
+function mcOpen(){ if(G.phase!=='play') return; G.phase='inv';
+  document.exitPointerLock&&document.exitPointerLock(); const ov=$('mcInv'); if(ov) ov.classList.remove('hidden');
+  const rb=$('mcRecipeBook'); if(rb && !rb.dataset.filled){ rb.innerHTML=mcRecipeBookHTML(); rb.dataset.filled='1'; }
+  renderInv(); renderHotbar(); updateHeldCursor(); }
+function mcClose(){ if(G.phase!=='inv') return; mcReturnHeldAndCraft(); const ov=$('mcInv'); if(ov) ov.classList.add('hidden');
+  renderInv(); renderHotbar(); G.phase='play'; lockMouse(); }
 function mcToggle(){ (G.phase==='inv')?mcClose():mcOpen(); }
-function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true;
-  $('mcGrid').addEventListener('click', e=>{ const s=e.target.closest('.mcSlot'); if(!s) return; const i=+s.dataset.grid;
-    if(G.mcGrid[i]) mcSetCell(i,null); else if(mcSel) mcSetCell(i,mcSel); });
-  $('mcGrid').addEventListener('contextmenu', e=>{ e.preventDefault(); const s=e.target.closest('.mcSlot'); if(s) mcSetCell(+s.dataset.grid,null); });
-  $('mcBag').addEventListener('click', e=>{ const s=e.target.closest('.mcSlot'); if(!s||s.classList.contains('empty')) return; mcSel=(mcSel===s.dataset.bag)?null:s.dataset.bag; mcRenderBag(); });
-  $('mcResult').addEventListener('click', mcCraft); $('mcCraftBtn').addEventListener('click', mcCraft); }
-function mcUnlock(){ if(G.minecraftMode) return; G.minecraftMode=true; mcInitInventory(); mcBindOverlay();
-  toast('MINECRAFT MODE UNLOCKED','press E for inventory + crafting','#5a9e3a'); }
+function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true; const ov=$('mcInv'); if(!ov) return;
+  const zoneOf=(el)=>{ const s=el.closest('.mcSlot'); if(!s) return null;
+    if(s.dataset.main!=null) return ['main',+s.dataset.main]; if(s.dataset.hot!=null) return ['hot',+s.dataset.hot]; if(s.dataset.craft!=null) return ['craft',+s.dataset.craft]; return null; };
+  ov.addEventListener('click', e=>{ if(e.target.closest('#mcCraftResult')){ mcCraft(); return; }
+    const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],false); });
+  ov.addEventListener('contextmenu', e=>{ e.preventDefault(); const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],true); });
+  ov.addEventListener('mousemove', e=>{ updateHeldCursor(e.clientX+14,e.clientY+14); });
+  const btn=$('mcCraftBtn'); if(btn) btn.addEventListener('click', mcCraft); }
+
+// ── hotbar selection (scroll / number keys) ──
+function hotSelect(i){ if(i<0||i>4) return; INV.sel=i; renderHotbar(); refreshHeldHand();
+  if(i<2){ swapTo(i); } }   // selecting a gun slot equips that gun
+function hotScroll(dir){ hotSelect((INV.sel+dir+5)%5); }
+function hotActiveId(){ if(INV.sel<2){ const w=G.weapons[INV.sel]; return w?w.type:null; } const s=INV.hot[INV.sel]; return s?s.id:null; }
+function holdingBlock(){ const id=hotActiveId(); return isPlaceable(id)?id:null; }
+function holdingFood(){ const id=hotActiveId(); const d=itemDef(id); return (d&&d.kind==='food')?id:null; }
+let heldHandMesh=null;
+function refreshHeldHand(){ if(heldHandMesh){ camera.remove(heldHandMesh); heldHandMesh=null; }
+  const id=hotActiveId(); const d=itemDef(id);
+  if(d && d.kind!=='gun'){ if(arms) arms.visible=isPlaceable(id)||d.kind==='food'?false:true;
+    const m=KIT.makeHeldItem(isPlaceable(id)?id:null); if(m){ heldHandMesh=m; camera.add(m); } if(arms) arms.visible = !m; }
+  else { if(arms) arms.visible=true; }   // gun selected → show arms
+}
+
+// ── eat food ──
+function eatHeld(){ const id=holdingFood(); if(!id) return false; if(invCount(id)<=0) return false;
+  invRemove(id,1); const d=itemDef(id); if(d.heal>=9999){ G.health=G.maxHealth; } else G.health=Math.min(G.maxHealth,G.health+d.heal);
+  updateHealthHUD(); AU&&AU.buy&&AU.buy(); toast('ATE '+itemName(id),'healed','#7be88a'); renderHotbar(); return true; }
+
+/* ════════════════════ MINING NODES (trees · rocks · wheat) ════════════════════ */
+const mineables = [];   // {grp,x,y,z,r,hp,maxhp,drops:[{id,p,min,max}],kind,alive,respawn}
+function addMineNode(grp,x,z,kind,hp,drops,r){ grp.position.set(x,0,z); KIT.shadow(grp); buildRoot.add(grp);
+  mineables.push({grp,x,y:0.7,z,r:r||0.9,hp,maxhp:hp,drops,kind,alive:true,respawn:0}); }
+function spawnMineNodes(){
+  if(mineables.length) return;                  // once
+  const spots=[];
+  // scatter trees + rocks across the open Minecraft ¾ of the map, away from the tower camp
+  for(let i=0;i<46;i++){ const a=Math.random()*Math.PI*2, rad=24+Math.random()*92;
+    const x=Math.cos(a)*rad, z=Math.sin(a)*rad;
+    if(Math.abs(x-CAMP_X)<TOWER_H+6 && Math.abs(z-CAMP_Z)<TOWER_H+6) continue;   // not on the camp
+    spots.push([x,z,Math.random()<0.55?'tree':'rock']); }
+  for(const [x,z,kind] of spots){
+    if(kind==='tree') addMineNode(KIT.makeTreeNode(), x,z,'tree',30,[{id:'wood',p:1,min:2,max:4}],0.8);
+    else addMineNode(KIT.makeRockNode(), x,z,'rock',45,[{id:'stone',p:1,min:1,max:3},{id:'coal',p:0.55,min:1,max:2},{id:'iron',p:0.3,min:1,max:1}],1.0);
+  }
+}
+function damageMineable(o,dmg){ if(!o.alive) return; o.hp-=dmg;
+  if(o.hp<=0){ o.alive=false; o.grp.visible=false; o.respawn=clock.elapsedTime+22;
+    fxExplosion(o.x,o.y,o.z, o.kind==='tree'?0x4a8a2a:0x9a9aa2, 0.5);
+    let any='';
+    for(const d of o.drops){ if(Math.random()<=d.p){ const q=d.min+((Math.random()*(d.max-d.min+1))|0); if(q>0){ invAdd(d.id,q); any=d.id; } } }
+    AU&&AU.buy&&AU.buy(); addPoints(5); if(any) toast('MINED '+itemName(any),'+inventory','#9fd0ff'); }
+}
+function updateMineables(dt){ const et=clock.elapsedTime;
+  for(const o of mineables){ if(!o.alive && o.respawn && et>=o.respawn){ o.alive=true; o.hp=o.maxhp; o.respawn=0; o.grp.visible=true; } } }
+function mcOnMined(kind){ // cave-ore drop table → items (kept for the existing ore cave)
+  const map={ cobblestone:'stone', coal:'coal', steel:'iron', obsidian:'obsidian', pingasore:'pingasore', diamond:'diamond' };
+  const id=map[kind]||'stone'; invAdd(id,1); }
+// raycast the nearest minable thing (node / cave-ore / placed block) and damage it
+function mineLook(dmg){ camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z, reach=4.6;
+  let bestT=reach, hit=null;
+  for(const o of mineables){ if(!o.alive) continue; const t=sphereT(ox,oy,oz,_dir.x,_dir.y,_dir.z,o.x,o.y,o.z,o.r,bestT); if(t>0&&t<bestT){ bestT=t; hit={mine:o}; } }
+  for(let i=0;i<oreBlocks.length;i++){ const o=oreBlocks[i]; if(!o.alive) continue; const t=sphereT(ox,oy,oz,_dir.x,_dir.y,_dir.z,o.x,o.y,o.z,o.r,bestT); if(t>0&&t<bestT){ bestT=t; hit={ore:o}; } }
+  for(let t=0.3;t<reach;t+=0.1){ const px=ox+_dir.x*t, py=oy+_dir.y*t, pz=oz+_dir.z*t; if(py<0) break;
+    const b=blockAt(worldCellX(px),Math.floor(py/BS),worldCellX(pz)); if(b){ if(t<bestT){ hit={placed:b}; } break; } }
+  if(!hit) return false;
+  if(hit.mine) damageMineable(hit.mine,dmg); else if(hit.ore) damageOre(hit.ore,dmg); else if(hit.placed) damagePlacedBlock(hit.placed,dmg,true);
+  return true; }
+let _mineT=0;
+function tryMine(dmg,rate){ const now=clock.elapsedTime; if(now-_mineT<1/(rate||3)) return; _mineT=now;
+  recoil=Math.min(0.5, recoil+0.3); AU&&AU.shoot&&AU.shoot('pistol'); mineLook(dmg||25); }
+// zombies chew through placed blocks that stand between them and the player
+function enemyAttackBlocks(e,dt){ if(placedBlocks.size===0) return false;
+  const px=e.grp.position.x, pz=e.grp.position.z;
+  const tx=camera.position.x-px, tz=camera.position.z-pz; const tl=Math.hypot(tx,tz)||1;
+  const fx=px+tx/tl*0.55, fz=pz+tz/tl*0.55;                 // a step ahead, toward the player
+  for(let gy=0;gy<6;gy++){ const b=blockAt(worldCellX(fx),gy,worldCellX(fz)); if(b){
+    b.hp-=18*dt*(e.dmgMul||1); if(b.hp<=0){ damagePlacedBlock(b,9999,false); } return true; } }
+  return false; }
+
+/* ════════════════════ VOXEL BUILDING (placement · support · block HP) ════════════════════ */
+const placedBlocks = new Map();   // "gx,gy,gz" -> {id,mesh,hp,maxhp,gx,gy,gz}
+function cellKey(gx,gy,gz){ return gx+','+gy+','+gz; }
+function worldCellX(x){ return Math.floor(x/BS); }
+function cellCenter(g){ return (g+0.5)*BS; }
+function blockAt(gx,gy,gz){ return placedBlocks.get(cellKey(gx,gy,gz)); }
+function makePlacedMesh(id){ let m; if(id==='door'){ m=KIT.makeMcDoor(); } else { m=KIT.makeMcBlock(id); } KIT.shadow(m); return m; }
+function addPlacedBlock(gx,gy,gz,id){ if(blockAt(gx,gy,gz)) return false; if(gy<0) return false;
+  const d=itemDef(id); const m=makePlacedMesh(id);
+  m.position.set(cellCenter(gx), gy*BS+BS/2, cellCenter(gz)); buildRoot.add(m);
+  const b={id,mesh:m,hp:(d&&d.hp)||40,maxhp:(d&&d.hp)||40,gx,gy,gz}; placedBlocks.set(cellKey(gx,gy,gz),b);
+  if(m.userData.update) worldAnims.push(m.userData.update);
+  return true; }
+function removePlacedBlock(b,drop){ if(!b) return; placedBlocks.delete(cellKey(b.gx,b.gy,b.gz));
+  if(b.mesh){ buildRoot.remove(b.mesh); if(b.mesh.userData.update){ const k=worldAnims.indexOf(b.mesh.userData.update); if(k>=0) worldAnims.splice(k,1); } }
+  if(drop) invAdd(b.id,1); }
+// place the currently-held hotbar block at the cell you're looking at
+function placeHeldBlock(){ const id=holdingBlock(); if(!id) return false; if(invCount(id)<=0){ AU&&AU.dry&&AU.dry(); return false; }
+  camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+  let lastEmpty=null;
+  for(let t=0.4;t<=5.0;t+=0.12){ const px=ox+_dir.x*t, py=oy+_dir.y*t, pz=oz+_dir.z*t;
+    if(py<0){ break; }                                   // hit ground → use last empty (or ground cell below)
+    const gx=worldCellX(px), gy=Math.floor(py/BS), gz=worldCellX(pz);
+    if(blockAt(gx,gy,gz)){ break; }                      // hit a block → place at lastEmpty against its face
+    lastEmpty=[gx,gy,gz];
+  }
+  if(!lastEmpty){ // looking at open ground in front: place a ground block where the ray crosses y=0-ish
+    for(let t=0.4;t<=5.0;t+=0.12){ const px=ox+_dir.x*t, py=oy+_dir.y*t, pz=oz+_dir.z*t; if(py<=BS){ lastEmpty=[worldCellX(px),0,worldCellX(pz)]; break; } } }
+  if(!lastEmpty) return false;
+  const [gx,gy,gz]=lastEmpty; if(blockAt(gx,gy,gz)) return false;
+  // don't seal the block into the player's own body
+  const cx=cellCenter(gx), cz=cellCenter(gz), cyl=gy*BS, cyh=gy*BS+BS;
+  const pr=PLAYER_R+0.05; if(Math.abs(camera.position.x-cx)<BS/2+pr && Math.abs(camera.position.z-cz)<BS/2+pr
+      && cyh>G.footY+0.1 && cyl<G.eyeY+0.2) return false;
+  if(!addPlacedBlock(gx,gy,gz,id)) return false;
+  invRemove(id,1); AU&&AU.shoot&&AU.shoot('pistol'); renderHotbar(); return true; }
+// left-click while holding a block/tool: mine the placed block (or door toggle) you're looking at
+function minePlacedLook(){ camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+  for(let t=0.3;t<=4.5;t+=0.1){ const gx=worldCellX(ox+_dir.x*t), gy=Math.floor((oy+_dir.y*t)/BS), gz=worldCellX(oz+_dir.z*t);
+    const b=blockAt(gx,gy,gz); if(b){ damagePlacedBlock(b, 9999, true); return true; } if(oy+_dir.y*t<0) break; }
+  return false; }
+function damagePlacedBlock(b,dmg,mined){ if(!b) return; b.hp-=dmg;
+  if(b.hp<=0){ fxExplosion(cellCenter(b.gx), b.gy*BS+BS/2, cellCenter(b.gz), 0x9a9aa2, 0.4);
+    removePlacedBlock(b, mined); AU&&AU.buy&&AU.buy(); supportCheck(); }
+}
+// door open/close on right-click
+function toggleDoorLook(){ camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+  for(let t=0.3;t<=4.0;t+=0.1){ const gx=worldCellX(ox+_dir.x*t), gy=Math.floor((oy+_dir.y*t)/BS), gz=worldCellX(oz+_dir.z*t);
+    const b=blockAt(gx,gy,gz); if(b){ if(b.id==='door' && b.mesh.userData.toggle){ b.mesh.userData.toggle(); AU&&AU.reload&&AU.reload(); return true; } return false; } if(oy+_dir.y*t<0) break; }
+  return false; }
+// structural support: every block must connect (6-neighbour) to a block resting on the ground (gy===0)
+function supportCheck(){ if(placedBlocks.size===0) return;
+  const seen=new Set(), q=[];
+  for(const b of placedBlocks.values()) if(b.gy===0){ seen.add(cellKey(b.gx,b.gy,b.gz)); q.push(b); }
+  const N=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  while(q.length){ const b=q.pop(); for(const n of N){ const nb=blockAt(b.gx+n[0],b.gy+n[1],b.gz+n[2]); if(nb){ const k=cellKey(nb.gx,nb.gy,nb.gz); if(!seen.has(k)){ seen.add(k); q.push(nb); } } } }
+  const doomed=[]; for(const b of placedBlocks.values()) if(!seen.has(cellKey(b.gx,b.gy,b.gz))) doomed.push(b);
+  if(doomed.length){ for(const b of doomed){ fxExplosion(cellCenter(b.gx),b.gy*BS+BS/2,cellCenter(b.gz),0x9a7a4a,0.3); removePlacedBlock(b,true); }
+    toast('STRUCTURE COLLAPSED','unsupported blocks fell','#d8a24a'); }
+}
+// physics queries used by groundHeightAt / clampArena
+function blockTopColumn(x,z,cap){ // highest block top at (x,z) column that is <= cap (for standing/stepping up)
+  const gx=worldCellX(x), gz=worldCellX(z); let best=-1;
+  for(let gy=0;gy<40;gy++){ if(blockAt(gx,gy,gz)){ const top=(gy+1)*BS; if(top<=cap+0.001 && top>best) best=top; } }
+  return best; }
+function resolveBlockCollision(x,z,footY,eyeY,rad){ // push a circle out of any block whose vertical span overlaps [footY+step, eyeY]
+  const minGx=worldCellX(x-rad-BS), maxGx=worldCellX(x+rad+BS), minGz=worldCellX(z-rad-BS), maxGz=worldCellX(z+rad+BS);
+  const yLo=footY+STEP_UP+0.02, yHi=eyeY;
+  for(let gx=minGx;gx<=maxGx;gx++) for(let gz=minGz;gz<=maxGz;gz++){
+    // tallest relevant block in this column whose body is at the player's torso height
+    for(let gy=0;gy<40;gy++){ const b=blockAt(gx,gy,gz); if(!b) continue; const bl=gy*BS, bh=gy*BS+BS;
+      if(bh<=yLo || bl>=yHi) continue;                 // steppable or above head → ignore
+      const cx=cellCenter(gx), cz=cellCenter(gz); const half=BS/2+rad;
+      const dx=x-cx, dz=z-cz; if(Math.abs(dx)<half && Math.abs(dz)<half){
+        const px=half-Math.abs(dx), pz=half-Math.abs(dz);
+        if(px<pz) x=cx+(dx<0?-half:half); else z=cz+(dz<0?-half:half); }
+    }
+  }
+  return [x,z]; }
+function blockSolidForEnemy(x,z,y){ const b=blockAt(worldCellX(x),Math.floor(y/BS),worldCellX(z)); return !!b; }
+
+// place a prefab house in front of the player (House Kit recipe)
+function placeHousePrefabInFront(){ camera.getWorldDirection(_dir);
+  const hx=camera.position.x+_dir.x*5, hz=camera.position.z+_dir.z*5;
+  const h=KIT.makeHousePrefab(); h.position.set(hx,0,hz); h.rotation.y=Math.atan2(-_dir.x,-_dir.z); KIT.shadow(h); buildRoot.add(h);
+  colliders.push({x:hx,z:hz,r:2.6}); toast('HOUSE BUILT','a fresh cabin appears','#9fd0ff'); }
+
+/* ════════════════════ INIT / COMPAT ════════════════════ */
+function mcInitInventory(){
+  for(let i=0;i<20;i++) INV.main[i]=null; for(let i=0;i<5;i++) INV.hot[i]=null; for(let i=0;i<9;i++) INV.craft[i]=null;
+  INV.held=null; INV.sel=0;
+  // starter kit so building/crafting is usable from round 1
+  const start={ stone:32, wood:16, plank:8, coal:8, dirt:16, wheat:6 };
+  for(const id in start) invAdd(id, start[id]);
+  spawnMineNodes();
+}
+function mcUnlock(){ /* build mode is available from round 1; kept for the giga-boss callsite */
+  toast('MINECRAFT MODE','press E for inventory + crafting','#5a9e3a'); }
+
 
 function bindInput(){
   document.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); G.keys[k]=true;
@@ -1848,9 +2155,12 @@ function bindInput(){
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
     if(k==='f') doInteract();
-    if(k==='1') swapTo(0);
-    if(k==='2') swapTo(1);
-    if(k==='q') cycleWeapon(1);
+    if(k==='1') hotSelect(0);
+    if(k==='2') hotSelect(1);
+    if(k==='3') hotSelect(2);
+    if(k==='4') hotSelect(3);
+    if(k==='5') hotSelect(4);
+    if(k==='q') hotScroll(1);
     if(k==='escape') pauseGame();
     if(e.code==='Space'){ if(G.onGround){ G.vy=8.0; G.onGround=false; } }
   });
@@ -1863,7 +2173,12 @@ function bindInput(){
         if(now-(G._rbT||0)>1.2) G._rbN=0; G._rbT=now; G._rbN=(G._rbN||0)+1;
         if(G._rbN>=3){ G._rbN=0; addPoints(100000); AU.power(); toast('☠ ADMIN','+100,000 points','#ffd23a'); } }
     }
-    else if(e.button===2) G.rightMouseDown=true;
+    else if(e.button===2){ G.rightMouseDown=true;
+      // right-click with a build item: place block / eat food / toggle a door
+      if(holdingBlock()){ if(!placeHeldBlock()) toggleDoorLook(); }
+      else if(holdingFood()){ eatHeld(); }
+      else toggleDoorLook();
+    }
     e.preventDefault();
   });
   document.addEventListener('mouseup', e=>{
@@ -1871,7 +2186,7 @@ function bindInput(){
     else if(e.button===2) G.rightMouseDown=false;
   });
   document.addEventListener('contextmenu', e=>{ if(G.phase==='play') e.preventDefault(); });
-  document.addEventListener('wheel', e=>{ if(G.phase!=='play') return; cycleWeapon(e.deltaY>0?1:-1); }, {passive:true});
+  document.addEventListener('wheel', e=>{ if(G.phase!=='play') return; hotScroll(e.deltaY>0?1:-1); }, {passive:true});
   document.addEventListener('mousemove', e=>{ if(G.phase!=='play') return;
     // Skip the first event right after (re)acquiring pointer lock — browsers can report a
     // huge accumulated delta here, which used to snap the view ~90°.
@@ -1902,7 +2217,9 @@ function resetRun(){
   for(const n of nades){ scene.remove(n.grp); } nades.length=0;
   G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
   G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false; G.monkeyWave=0; G.monkeyTimer=0;
-  G.minecraftMode=false; G.inventory=null; G.mcGrid=new Array(9).fill(null); { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
+  G.minecraftMode=false; { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
+  // clear any placed build blocks from a previous run
+  if(typeof placedBlocks!=='undefined'){ for(const b of Array.from(placedBlocks.values())) removePlacedBlock(b,false); }
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false), newWeapon('pickaxe',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
@@ -1922,6 +2239,7 @@ function startGame(){
   resetRun(); G.phase='play'; $('hud').classList.add('on');
   hideAllScreens(); AU.resume(); lockMouse();
   G.minecraftMode=true; mcInitInventory(); mcBindOverlay();   // inventory + crafting available from round 1 (press E)
+  INV.sel=0; renderHotbar(); refreshHeldHand();
   G.intermission=clock.elapsedTime+2.0; updateRoundHUD();
   toast('UNDEAD SIEGE','prepare yourself · press E for crafting');
 }
@@ -1980,10 +2298,14 @@ function loop(){
   }
 }
 function simStep(dt){
-  // input → fire
+  // input → fire / mine
   const w=curW();
+  const _aid=hotActiveId(), _ad=itemDef(_aid), _holdGun=!(_ad)|| _ad.kind==='gun';
   if(w && w.type==='axe'){ updateAxe(dt, G.mouseDown); }
-  else if(G.mouseDown){ if(w && (WDEF[w.type].auto || canSemi())) fire(); }
+  else if(G.mouseDown){
+    if(_holdGun){ if(w && (WDEF[w.type].auto || canSemi())) fire(); }   // gun / pickaxe in hand
+    else { tryMine(28, 3.2); }                                          // block/food in hand → left-click mines by hand
+  }
   updatePlayer(dt);
   updateReload();
   updateEnemies(dt);
@@ -1991,6 +2313,7 @@ function simStep(dt){
   updateNades(dt);
   updateDrops(dt);
   updateOre(dt);
+  updateMineables(dt);
   { const et=clock.elapsedTime; for(let i=0;i<worldAnims.length;i++) worldAnims[i](et); }  // compound props
   directorTick(dt);
   updateInteraction();
@@ -2099,6 +2422,10 @@ window.__perf=(n)=>{ // isolate JS sim cost (the only thing MY code controls) fr
   let s=performance.now(); for(let i=0;i<n;i++) simStep(STEP); const simMs=(performance.now()-s)/n;
   s=performance.now(); for(let i=0;i<n;i++) renderer.render(scene,camera); const renderMs=(performance.now()-s)/n;
   return { simMs:+simMs.toFixed(4), renderMs:+renderMs.toFixed(3), alive:G.aliveCount, drawCalls:renderer.info.render.calls, triangles:renderer.info.render.triangles }; };
+// build-mode test hook
+window.__mc={ INV, invCount, invAdd, invRemove, mcOpen, mcClose, mcEvalRecipe, mcCraft, slotClick, hotSelect,
+  holdingBlock, holdingFood, placeHeldBlock, damagePlacedBlock, addPlacedBlock, blockAt, placedBlocks,
+  mineables, damageMineable, eatHeld, supportCheck, get match(){ return mcMatch; } };
 
 if(document.readyState==='complete'||document.readyState==='interactive') boot();
 else addEventListener('DOMContentLoaded', boot);

@@ -136,17 +136,40 @@
   /* ════════ MINECRAFT MODE — inventory/crafting overlay ════════ */
   #mcInv{position:absolute; inset:0; z-index:35; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(12,18,28,.62), rgba(3,5,9,.9)); font-family:inherit}
   #mcInv.hidden{display:none !important}
-  #mcPanel{width:520px; max-width:92vw; padding:22px 24px 20px; background:linear-gradient(180deg,rgba(22,28,40,.96),rgba(12,16,26,.97)); border:3px solid #2a3346; border-radius:4px; box-shadow:0 0 0 2px #0a0e16, 0 14px 50px rgba(0,0,0,.7)}
-  #mcTitle{font-size:20px; font-weight:700; letter-spacing:4px; color:#cfe0ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px}
+  #mcPanel{width:760px; max-width:96vw; max-height:94vh; overflow:auto; padding:20px 22px 16px; background:linear-gradient(180deg,rgba(22,28,40,.96),rgba(12,16,26,.97)); border:3px solid #2a3346; border-radius:4px; box-shadow:0 0 0 2px #0a0e16, 0 14px 50px rgba(0,0,0,.7)}
+  #mcTitle{font-size:20px; font-weight:700; letter-spacing:4px; color:#cfe0ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px}
   #mcTitle span{font-size:11px; letter-spacing:2px; color:#6f819f}
-  #mcCraftRow{display:flex; align-items:center; justify-content:center; gap:18px; margin-bottom:18px}
-  #mcGrid{display:grid; grid-template-columns:repeat(3,48px); grid-template-rows:repeat(3,48px); gap:5px}
-  #mcArrow{font-size:26px; color:#5c6f8d} #mcResultWrap{display:flex; flex-direction:column; align-items:center; gap:6px}
-  #mcResultName{font-size:12px; letter-spacing:2px; color:#9fb2cf; min-height:14px; text-transform:uppercase}
-  .mcSlot{width:48px; height:48px; background:#12161f; border:2px solid #3a455c; box-shadow:inset 0 3px 0 rgba(0,0,0,.45); border-radius:2px; position:relative; cursor:pointer; transition:border-color .1s}
-  .mcSlot:hover{border-color:#5aa0ff} .mcSlot.mcResult{width:60px; height:60px; border-color:#ffc24a}
-  .mcSlot.mcResult.ready{box-shadow:inset 0 0 14px rgba(255,194,74,.5), 0 0 16px rgba(255,194,74,.35)}
-  .mcSlot.sel{border-color:#5aa0ff; box-shadow:inset 0 0 12px rgba(90,160,255,.5)}
+  #mcBody{display:flex; gap:20px; align-items:flex-start}
+  #mcLeft{flex:0 0 auto} #mcRight{flex:1 1 auto; min-width:200px}
+  #mcCraftRow{display:flex; align-items:center; gap:16px; margin-bottom:16px}
+  #mcCraft{display:grid; grid-template-columns:repeat(3,46px); grid-template-rows:repeat(3,46px); gap:5px}
+  #mcArrow{font-size:24px; color:#5c6f8d} #mcResultWrap{display:flex; flex-direction:column; align-items:center; gap:5px}
+  #mcCraftName{font-size:11px; letter-spacing:1px; color:#9fb2cf; min-height:13px; text-transform:uppercase; text-align:center; max-width:90px}
+  .mcLbl{font-size:12px; letter-spacing:3px; color:#7f93b3; text-transform:uppercase; margin:4px 0 6px}
+  #mcMain{display:grid; grid-template-columns:repeat(10,46px); gap:5px}
+  #mcHot{display:grid; grid-template-columns:repeat(5,46px); gap:5px; margin-top:2px}
+  .mcSlot{width:46px; height:46px; background:#12161f; border:2px solid #3a455c; box-shadow:inset 0 3px 0 rgba(0,0,0,.45); border-radius:2px; position:relative; cursor:pointer; transition:border-color .1s}
+  .mcSlot:hover{border-color:#5aa0ff} #mcCraftResult{width:58px; height:58px; border-color:#ffc24a; cursor:pointer}
+  #mcCraftResult.ready{box-shadow:inset 0 0 14px rgba(255,194,74,.5), 0 0 16px rgba(255,194,74,.35)}
+  #mcHot .mcSlot{border-color:#5a6886; background:#161d2a} #mcHot .mcSlot:nth-child(-n+2){border-color:#7a5a3a}
+  .mcSlot.sel{border-color:#ffd23a; box-shadow:inset 0 0 12px rgba(255,210,58,.45)}
+  #mcRecipeBook{max-height:330px; overflow-y:auto; padding-right:6px; display:flex; flex-direction:column; gap:6px}
+  .recipeRow{display:flex; gap:10px; align-items:center; padding:6px 8px; background:rgba(8,12,18,.55); border:1px solid #232c3c; border-radius:3px}
+  .recipeRow .mcBlk{position:relative; width:30px; height:30px; inset:auto; flex:0 0 30px}
+  .rInfo{min-width:0} .rName{font-size:12px; font-weight:700; letter-spacing:1px; color:#cfe0ff; text-transform:uppercase}
+  .rDesc{font-size:11px; color:#8295b4; line-height:1.35}
+  #mcHeld{position:fixed; z-index:60; width:40px; height:40px; pointer-events:none}
+  #mcHeld.hidden{display:none} #mcHeld .mcBlk{position:absolute; inset:0}
+  /* always-on HUD hotbar */
+  #hotbar{position:absolute; left:50%; bottom:16px; transform:translateX(-50%); display:flex; gap:6px; z-index:20; pointer-events:none}
+  .hslot{width:50px; height:50px; background:rgba(10,14,22,.6); border:2px solid #3a455c; border-radius:3px; position:relative}
+  .hslot:nth-child(-n+2){border-color:#6a4f34}
+  .hslot.sel{border-color:#ffd23a; box-shadow:0 0 12px rgba(255,210,58,.5); transform:translateY(-3px)}
+  .hslot .hicon{position:absolute; inset:5px} .hslot .hicon .mcBlk{position:absolute; inset:0}
+  .hslot .hcount{position:absolute; right:2px; bottom:1px; font-size:12px; font-weight:700; color:#fff; text-shadow:1px 1px 0 #000}
+  .hslot .hnum{position:absolute; left:2px; top:0; font-size:10px; color:#6f819f}
+  .mcBlk.gunChip{display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#2a3344,#161c28); box-shadow:inset 0 0 0 2px #44608a}
+  .mcBlk.gunChip span{font-size:9px; font-weight:700; color:#9fd0ff; letter-spacing:1px}
   .mcBlk{position:absolute; inset:5px; border-radius:1px; box-shadow:inset -4px -4px 0 rgba(0,0,0,.35), inset 4px 4px 0 rgba(255,255,255,.12)}
   .mcBlk[data-t="cobblestone"]{background:#8a8a8f} .mcBlk[data-t="wood"]{background:#6b4a28} .mcBlk[data-t="plank"]{background:#9c7a48}
   .mcBlk[data-t="coal"]{background:#8a8a8f; background-image:radial-gradient(#16161a 26%,transparent 27%); background-size:14px 14px; background-position:2px 3px}
@@ -158,6 +181,17 @@
   .mcBlk[data-t="diapick"]{background:linear-gradient(135deg,#4fe8e0 0 45%,#9c7a48 45% 100%); box-shadow:inset 0 0 0 2px #6ff6ee}
   .mcBlk[data-t="super"]{background:radial-gradient(circle at 50% 40%,#bafffb,#4fe8e0 60%,#1aa39c); box-shadow:inset 0 0 0 2px #6ff6ee, 0 0 8px #4fe8e0}
   .mcBlk[data-t="bench"]{background:#9c7a48; background-image:linear-gradient(#6b4a28 2px,transparent 2px),linear-gradient(90deg,#6b4a28 2px,transparent 2px); background-size:12px 12px}
+  .mcBlk[data-t="stone"]{background:#8f8f97; background-image:radial-gradient(#73737c 22%,transparent 23%); background-size:11px 11px; background-position:3px 2px}
+  .mcBlk[data-t="iron"]{background:#cfd4dd; background-image:radial-gradient(#d8e0e8 26%,transparent 27%); background-size:13px 13px; background-position:3px 2px}
+  .mcBlk[data-t="glass"]{background:rgba(150,220,255,.35); box-shadow:inset 0 0 0 3px rgba(220,242,255,.55), inset -4px -4px 0 rgba(0,0,0,.15)}
+  .mcBlk[data-t="dirt"]{background:#6b4a2c; background-image:radial-gradient(#4f351e 24%,transparent 25%); background-size:10px 10px; background-position:2px 3px}
+  .mcBlk[data-t="grass"]{background:#6b4a2c; background-image:linear-gradient(#5a9e3a 9px,transparent 9px); background-size:100% 100%}
+  .mcBlk[data-t="brick"]{background:#9c4a36; background-image:repeating-linear-gradient(0deg,transparent 0 8px,#6a2e22 8px 10px),repeating-linear-gradient(90deg,transparent 0 14px,#6a2e22 14px 16px)}
+  .mcBlk[data-t="leaves"]{background:#2f6b2a; background-image:radial-gradient(#3f8a36 26%,transparent 27%); background-size:11px 11px; background-position:2px 3px}
+  .mcBlk[data-t="door"]{background:#9c7a48; background-image:linear-gradient(90deg,#6b4a28 3px,transparent 3px 43px,#6b4a28 43px),linear-gradient(#6b4a28 3px,transparent 3px); background-size:46px 18px}
+  .mcBlk[data-t="stick"]{background:#161c28; background-image:linear-gradient(135deg,transparent 42%,#9c7a48 42% 58%,transparent 58%)}
+  .mcBlk[data-t="wheat"]{background:#161c28; background-image:repeating-linear-gradient(90deg,transparent 0 6px,#d9b44a 6px 9px)}
+  .mcBlk[data-t="bread"]{background:radial-gradient(ellipse at 50% 40%,#d8943e,#9c5e22); border-radius:40% 40% 45% 45%}
   .mcCount{position:absolute; right:1px; bottom:0; font-size:12px; font-weight:700; color:#fff; text-shadow:1px 1px 0 #000; pointer-events:none}
   #mcInvLabel{font-size:12px; letter-spacing:3px; color:#7f93b3; text-transform:uppercase; margin-bottom:6px}
   #mcBag{display:flex; flex-wrap:wrap; gap:5px; padding:8px; background:rgba(8,12,18,.6); border:2px solid #2a3346; border-radius:3px; min-height:62px}
@@ -207,25 +241,48 @@
     <div id="prompt"><span class="key">F</span><div class="txt"></div></div>
     <div id="toast"></div>
     <div id="subtoast"></div>
-    <!-- MINECRAFT MODE: inventory + 3×3 crafting (unlocked after the round-20 giga boss) -->
+    <!-- MINECRAFT BUILD MODE: inventory · hotbar · 3×3 crafting · recipe book (press E) -->
     <div id="mcInv" class="hidden">
       <div id="mcPanel">
-        <div id="mcTitle">CRAFTING<span>press E to close</span></div>
-        <div id="mcCraftRow">
-          <div id="mcGrid">
-            <div class="mcSlot" data-grid="0"></div><div class="mcSlot" data-grid="1"></div><div class="mcSlot" data-grid="2"></div>
-            <div class="mcSlot" data-grid="3"></div><div class="mcSlot" data-grid="4"></div><div class="mcSlot" data-grid="5"></div>
-            <div class="mcSlot" data-grid="6"></div><div class="mcSlot" data-grid="7"></div><div class="mcSlot" data-grid="8"></div>
+        <div id="mcTitle">INVENTORY &amp; CRAFTING<span>press E to close · drag to move · right-click drops one</span></div>
+        <div id="mcBody">
+          <div id="mcLeft">
+            <div id="mcCraftRow">
+              <div id="mcCraft">
+                <div class="mcSlot" data-craft="0"></div><div class="mcSlot" data-craft="1"></div><div class="mcSlot" data-craft="2"></div>
+                <div class="mcSlot" data-craft="3"></div><div class="mcSlot" data-craft="4"></div><div class="mcSlot" data-craft="5"></div>
+                <div class="mcSlot" data-craft="6"></div><div class="mcSlot" data-craft="7"></div><div class="mcSlot" data-craft="8"></div>
+              </div>
+              <div id="mcArrow">▶</div>
+              <div id="mcResultWrap"><div class="mcSlot" id="mcCraftResult"></div><div id="mcCraftName">—</div><button id="mcCraftBtn" disabled>CRAFT</button></div>
+            </div>
+            <div class="mcLbl">Inventory — 20 slots · stacks of 64</div>
+            <div id="mcMain">
+              <div class="mcSlot" data-main="0"></div><div class="mcSlot" data-main="1"></div><div class="mcSlot" data-main="2"></div><div class="mcSlot" data-main="3"></div><div class="mcSlot" data-main="4"></div><div class="mcSlot" data-main="5"></div><div class="mcSlot" data-main="6"></div><div class="mcSlot" data-main="7"></div><div class="mcSlot" data-main="8"></div><div class="mcSlot" data-main="9"></div>
+              <div class="mcSlot" data-main="10"></div><div class="mcSlot" data-main="11"></div><div class="mcSlot" data-main="12"></div><div class="mcSlot" data-main="13"></div><div class="mcSlot" data-main="14"></div><div class="mcSlot" data-main="15"></div><div class="mcSlot" data-main="16"></div><div class="mcSlot" data-main="17"></div><div class="mcSlot" data-main="18"></div><div class="mcSlot" data-main="19"></div>
+            </div>
+            <div class="mcLbl">Hotbar — 2 guns + 3 items (scroll / 1-5)</div>
+            <div id="mcHot">
+              <div class="mcSlot" data-hot="0"></div><div class="mcSlot" data-hot="1"></div><div class="mcSlot" data-hot="2"></div><div class="mcSlot" data-hot="3"></div><div class="mcSlot" data-hot="4"></div>
+            </div>
           </div>
-          <div id="mcArrow">▶</div>
-          <div id="mcResultWrap"><div class="mcSlot mcResult" id="mcResult"></div><div id="mcResultName">—</div></div>
+          <div id="mcRight">
+            <div class="mcLbl">Recipes</div>
+            <div id="mcRecipeBook"></div>
+          </div>
         </div>
-        <div id="mcInvLabel">INVENTORY</div>
-        <div id="mcBag"></div>
-        <div id="mcHint"><b>CLICK</b> a block then a grid cell · <b>RIGHT-CLICK</b> a cell to clear · <b>CRAFT</b> to take the result</div>
-        <button id="mcCraftBtn">CRAFT</button>
+        <div id="mcHint"><b>LEFT-CLICK</b> pick up / drop a stack · <b>RIGHT-CLICK</b> drop one (or split) · click the <b>result</b> to craft</div>
       </div>
     </div>
+    <!-- always-on HUD hotbar -->
+    <div id="hotbar">
+      <div class="hslot" data-hotslot="0"><div class="hicon"></div><div class="hcount"></div><div class="hnum">1</div></div>
+      <div class="hslot" data-hotslot="1"><div class="hicon"></div><div class="hcount"></div><div class="hnum">2</div></div>
+      <div class="hslot" data-hotslot="2"><div class="hicon"></div><div class="hcount"></div><div class="hnum">3</div></div>
+      <div class="hslot" data-hotslot="3"><div class="hicon"></div><div class="hcount"></div><div class="hnum">4</div></div>
+      <div class="hslot" data-hotslot="4"><div class="hicon"></div><div class="hcount"></div><div class="hnum">5</div></div>
+    </div>
+    <div id="mcHeld" class="hidden"></div>
   </div>
 
   <!-- LOADING -->

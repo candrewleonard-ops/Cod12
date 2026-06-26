@@ -720,8 +720,9 @@ class Kit {
   }
   // ════════ MINECRAFT AREA ASSETS (ported from the designer map) ════════
   mcMat(type) {
-    const C={ cobblestone:0x8a8a8f, coal:0x2b2b30, steel:0xb8c0c8, obsidian:0x251935, pingasore:0x9c8a3a, dirt:0x6b4a2c, grassTop:0x5a9e3a, wood:0x6b4a28, leaves:0x2f6b2a, diamond:0x4fe8e0, plank:0x9c7a48 };
-    return this.mat(C[type]!=null?C[type]:0x888888, 0.95, type==='steel'||type==='diamond'?0.4:0);
+    const C={ cobblestone:0x8a8a8f, coal:0x2b2b30, steel:0xb8c0c8, iron:0xd8dce4, obsidian:0x251935, pingasore:0x9c8a3a, dirt:0x6b4a2c, grassTop:0x5a9e3a, wood:0x6b4a28, leaves:0x2f6b2a, diamond:0x4fe8e0, plank:0x9c7a48,
+      stone:0x8f8f97, brick:0x9c4a36, glass:0xbfe8ff, wheat:0xd9b44a, diamondblock:0x4fe8e0 };
+    return this.mat(C[type]!=null?C[type]:0x888888, 0.95, type==='steel'||type==='iron'||type==='diamond'||type==='diamondblock'?0.4:0);
   }
   makeMcBlock(type) { // 1 unit = half player height
     const g=new THREE.Group(); const S=0.5; const base=this.mcMat(type);
@@ -732,7 +733,100 @@ class Kit {
       const om=this.glow(oreC, type==='pingasore'||type==='diamond'?1.2:0.25);
       for(let i=0;i<6;i++){ const f=this.box(0.1,0.1,0.02, om); const s=0.255, a=[[0,0,s],[0,0,-s],[s,0,0],[-s,0,0],[0,s,0],[0,-s,0]][i]; f.position.set(a[0]+(Math.random()-0.5)*0.18, a[1]+(Math.random()-0.5)*0.18, a[2]); if(Math.abs(a[0])>0.2)f.rotation.y=Math.PI/2; if(Math.abs(a[1])>0.2)f.rotation.x=Math.PI/2; g.add(f); }
     } else if (type==='grass'){ cube.material=this.mcMat('dirt'); g.add(this.at(this.box(S,0.12,S,this.mcMat('grassTop')),0,0.19,0)); }
+    else if (type==='glass'){ cube.material=new THREE.MeshStandardMaterial({ color:0xbfe8ff, transparent:true, opacity:0.4, roughness:0.1, metalness:0.0 });
+      // glass pane frame so it reads as a block, not a floating tint
+      const fr=this.mat(0xdff2ff,0.4,0.1); const e=0.255; for(const a of [[e,0,0],[-e,0,0],[0,e,0],[0,-e,0]]){ const f=this.box(a[0]?0.04:S,a[1]?0.04:S,S,fr); f.position.set(a[0]*1,a[1]*1,0); g.add(f); } }
+    else if (type==='brick'){ // mortar lines on a red block
+      const m=this.glow(0x6a2e22,0.0); for(let i=0;i<3;i++) g.add(this.at(this.box(S+0.01,0.03,S+0.01,m),0,-0.18+i*0.18,0)); }
     g.userData.mcType=type;
+    return g;
+  }
+  /* ---------- NEW build-mode assets (kit voxel style) ---------- */
+  makeMcDoor(){ // 0.5 wide × 1.0 tall plank door (2 blocks tall), pivots open on its left edge
+    const g=new THREE.Group();
+    const pivot=new THREE.Group(); pivot.position.set(-0.24,0,0); g.add(pivot);
+    const panel=new THREE.Group(); panel.position.set(0.24,0,0); pivot.add(panel);
+    const plank=this.mcMat('plank'), wood=this.mcMat('wood');
+    panel.add(this.at(this.box(0.46,0.98,0.1, plank),0,0,0));
+    [-0.3,0.0,0.3].forEach(y=> panel.add(this.at(this.box(0.46,0.04,0.12, wood),0,y,0)));
+    panel.add(this.at(this.box(0.06,0.06,0.14, this.mat(0x3a2a18,0.7,0.2)),0.15,0,0)); // handle
+    g.userData.pivot=pivot; g.userData.open=false;
+    g.userData.toggle=()=>{ g.userData.open=!g.userData.open; };
+    g.userData.update=(t)=>{ const tgt=g.userData.open? -Math.PI*0.55:0; pivot.rotation.y += (tgt-pivot.rotation.y)*0.25; };
+    return g;
+  }
+  makeDirtPlot(){ // tilled, plantable soil tile (sits on the ground)
+    const g=new THREE.Group();
+    g.add(this.at(this.box(0.5,0.3,0.5, this.mcMat('dirt')),0,0.15,0));
+    const ridge=this.mat(0x5a3d22,0.95,0);
+    for(let i=-1;i<=1;i++) g.add(this.at(this.box(0.5,0.06,0.12,ridge),0,0.32,i*0.16));
+    g.userData.mcType='dirt';
+    return g;
+  }
+  makeWheatStalk(h){ // single wheat stalk; h~0.4..0.6
+    const g=new THREE.Group(); const stem=this.mat(0x6f8a2e,0.95,0), head=this.mcMat('wheat');
+    g.add(this.at(this.box(0.05,h,0.05,stem),0,h/2,0));
+    g.add(this.at(this.box(0.11,0.2,0.11,head),0,h+0.02,0));
+    return g;
+  }
+  makeWheatFarm(){ // village wheat patch: tilled rows + harvestable stalks
+    const g=new THREE.Group(); const stalks=[];
+    for(let x=-2;x<=2;x++)for(let z=-2;z<=2;z++){
+      g.add(this.at(this.makeDirtPlot(), x*0.5,0,z*0.5));
+      const s=this.makeWheatStalk(0.4+Math.random()*0.2); s.position.set(x*0.5,0.3,z*0.5); g.add(s); stalks.push(s);
+    }
+    // low log border
+    const wood=this.mcMat('wood'); for(const a of [[0,-1.45,2.9,0.2],[0,1.45,2.9,0.2],[-1.45,0,0.2,2.9],[1.45,0,0.2,2.9]]) g.add(this.at(this.box(a[2],0.18,a[3],wood),a[0],0.09,a[1]));
+    g.userData.stalks=stalks;
+    return g;
+  }
+  makeBlockChain(len){ // "long chain of blocks" — a connected horizontal run along +X
+    const g=new THREE.Group(); len=len||8; const m=this.mat(0x4a4f57,0.6,0.5), m2=this.mat(0x6a7079,0.5,0.6);
+    for(let i=0;i<len;i++){ const link=new THREE.Group(); link.position.set(i*0.5,0.5,0);
+      const torus=new THREE.Mesh(new THREE.TorusGeometry(0.18,0.06,8,14), i%2?m2:m); torus.rotation.y=i%2?Math.PI/2:0; link.add(torus); g.add(link); }
+    return g;
+  }
+  makeRockNode(){ // minable boulder → drops stone/coal/iron
+    const g=new THREE.Group(); const r=this.mcMat('cobblestone'), r2=this.mat(0x70707a,0.98,0);
+    for(let i=0;i<7;i++){ const s=0.4+Math.random()*0.5; const b=this.box(s,s,s, Math.random()<0.5?r:r2);
+      b.position.set((Math.random()-0.5)*1.0,0.25+Math.random()*0.5,(Math.random()-0.5)*1.0); b.rotation.set(Math.random(),Math.random(),Math.random()); g.add(b); }
+    // a couple of ore flecks for readability
+    for(let i=0;i<3;i++) g.add(this.at(this.box(0.1,0.1,0.1,this.glow(0x16161a,0.3)),(Math.random()-0.5)*0.8,0.4+Math.random()*0.3,(Math.random()-0.5)*0.8));
+    g.userData.mcType='stone';
+    return g;
+  }
+  makeTreeNode(){ // small minable tree → drops wood (reuses the blocky-tree look, shorter)
+    const g=new THREE.Group();
+    for(let i=0;i<3;i++) g.add(this.at(this.box(0.5,0.5,0.5,this.mcMat('wood')),0,0.25+i*0.5,0));
+    const lv=this.mcMat('leaves');
+    for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++){ if(Math.abs(x)+Math.abs(z)>1.5)continue; g.add(this.at(this.box(0.5,0.5,0.5,lv),x*0.5,1.7,z*0.5)); }
+    g.add(this.at(this.box(0.5,0.5,0.5,lv),0,2.15,0));
+    return g;
+  }
+  makeHousePrefab(){ // a clean walk-in plank house (doorway gap, window, roof)
+    const g=new THREE.Group(); const plank=this.mcMat('plank'), wood=this.mcMat('wood');
+    const W=4.2, D=4.2, H=2.6, t=0.25;
+    g.add(this.at(this.box(W,t,D, wood),0,t/2,0));                       // floor
+    g.add(this.at(this.box(W,t,D, wood),0,H,0));                          // ceiling
+    g.add(this.at(this.box(W,H,t, plank),0,H/2,-D/2));                    // back wall
+    [-1,1].forEach(s=> g.add(this.at(this.box(t,H,D, plank),s*W/2,H/2,0)));// side walls
+    // front wall with a doorway gap in the middle
+    [[-(W/2-0.8)/2-0.4, 1.6],[ (W/2-0.8)/2+0.4, 1.6]].forEach(p=> g.add(this.at(this.box((W-1.2)/2,H,t, plank),p[0],H/2,D/2)));
+    g.add(this.at(this.box(1.2,0.8,t, plank),0,H-0.4,D/2));               // lintel over door
+    g.add(this.at(this.box(0.9,0.9,0.12, new THREE.MeshStandardMaterial({color:0xbfe8ff,transparent:true,opacity:0.4})), W/2-0.02,1.5,0)); // window-ish
+    // simple pitched roof
+    for(let i=0;i<4;i++){ const w=W+0.4-i*0.9; g.add(this.at(this.box(w,0.3,D+0.4, this.mat(0x7a4a28,0.95,0)),0,H+0.2+i*0.28,0)); }
+    g.userData.collide=2.6;
+    return g;
+  }
+  makeHeldItem(id){ // small first-person held block for the lower-right of the view
+    if(!id) return null;
+    const blockIds=['stone','wood','plank','glass','dirt','grass','obsidian','brick','diamondblock','leaves','cobblestone','door'];
+    if(!blockIds.includes(id)) return null;       // guns/tools use the arms rig instead
+    const g=new THREE.Group();
+    let blk; if(id==='door') blk=this.makeMcDoor(); else blk=this.makeMcBlock(id);
+    blk.scale.setScalar(0.8); g.add(blk);
+    g.position.set(0.42,-0.42,-0.7); g.rotation.set(-0.3,0.6,0.1);
     return g;
   }
   makeBlockyTree(){
