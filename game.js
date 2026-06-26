@@ -965,17 +965,18 @@ function fire(){
   if(w.type==='axe'){ return; } // axe handled by charge system
   if(w.ammo<=0){ AU.dry(); flashReloadHint(); return; }
   w.lastShot=now; w.ammo--; updateAmmoHUD();
-  recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2));
+  recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2) * (G.perks.has('pingasliquid')?0.6:1));
   muzzle.intensity=2.4; muzzleT=now;
   AU.shoot(w.type==='shotgun'?'shotgun': w.type==='sniper'?'sniper': w.type==='wonder'?'wonder': w.type);
 
   camera.getWorldDirection(_dir);
   const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
-  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (G.perks.has('doubleshot')?1.1:1);
+  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1);
 
   if(w.type==='wonder'){ spawnBolt(ox,oy,oz,_dir.x,_dir.y,_dir.z, d.dmg*dmgMul, d.aoe); return; }
 
-  const pellets = d.pellets||1;
+  // Double Shot: fire a real second bullet (per pellet) on top of the faster fire rate
+  const pellets = (d.pellets||1) * (G.perks.has('doubleshot')?2:1);
   let anyHit=false;
   for(let p=0;p<pellets;p++){
     let dx=_dir.x, dy=_dir.y, dz=_dir.z;
@@ -1224,8 +1225,10 @@ function mysteryCrate(){
 function packAPunch(){
   if(!G.powerOn) return false; const w=curW(); if(!w||w.pap) return false;
   if(!spend(5000)) return false; AU.power();
-  w.pap=true; w.name=WDEF[w.type].name+' +'; w.reserve=WDEF[w.type].reserve; w.ammo=w.mag;
-  buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','weapon upgraded','#35d6ff'); return true;
+  w.pap=true; w.name=WDEF[w.type].name+' +';
+  w.mag=Math.round(WDEF[w.type].mag*1.5);                       // bigger magazine…
+  w.reserve=Math.round(WDEF[w.type].reserve*1.5); w.ammo=w.mag; // …and a full, larger reserve
+  buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','2.2× dmg · bigger mag','#35d6ff'); return true;
 }
 function buyPerk(id,cost,trimHex){
   if(!G.powerOn) return false; if(G.perks.has(id)) return false;
@@ -1448,7 +1451,7 @@ function hurtPlayer(n){
 function updatePlayer(dt){
   // look already applied on mousemove; here do movement + gravity + collision
   const sprint = G.keys['shift'] && !G.keys['s'];
-  const baseSpeed = sprint?8.6:5.6;
+  const baseSpeed = (sprint?8.6:5.6) * (G.perks.has('rootbeer')?1.25:1);   // Rootbeer Meth: faster legs
   // forward/right from yaw
   _fwd.set(Math.sin(G.yaw),0,Math.cos(G.yaw));
   _right.set(Math.cos(G.yaw),0,-Math.sin(G.yaw));
@@ -1478,8 +1481,9 @@ function updatePlayer(dt){
   let bob=0;
   if(ml>0 && G.onGround) bob=Math.sin(clock.elapsedTime*(sprint?16:11))*(sprint?0.05:0.035);
   camera.position.y = G.eyeY + bob;
-  // health regen
-  if(clock.elapsedTime - G.lastDmg > 4 && G.health<G.maxHealth){ G.health=Math.min(G.maxHealth, G.health+30*dt); updateHealthHUD(); }
+  // health regen (Rootbeer Meth: regen sooner + faster)
+  const _rb=G.perks.has('rootbeer');
+  if(clock.elapsedTime - G.lastDmg > (_rb?2.2:4) && G.health<G.maxHealth){ G.health=Math.min(G.maxHealth, G.health+(_rb?55:30)*dt); updateHealthHUD(); }
   // arms recoil/sway recover
   if(arms){ recoil*=Math.max(0,1-dt*9);
     arms.position.z = recoil*0.12; arms.rotation.x = recoil*0.5;
@@ -1548,7 +1552,7 @@ function updateBossBar(){
   } else bar.classList.add('hidden');
 }
 function updatePerksHUD(){ const wrap=$('perks'); wrap.innerHTML='';
-  const icons={doubleshot:['DS','#35d6ff'], rootbeer:['JG','#ffa23a'], juggernaut:['JUG','#ff6b35'], pingasliquid:['PL','#ff48c0']};
+  const icons={doubleshot:['DS','#35d6ff'], rootbeer:['RM','#ffa23a'], juggernaut:['JUG','#ff6b35'], pingasliquid:['PL','#ff48c0']};
   G.perks.forEach(p=>{ const [t,c]=icons[p]||['?','#fff']; const d=document.createElement('div'); d.className='perk';
     d.style.borderColor=c; d.style.color=c; d.textContent=t; wrap.appendChild(d); }); }
 function renderPrompt(lbl){ const el=$('prompt'); if(!lbl){ el.style.opacity='0'; return; }
@@ -1787,6 +1791,7 @@ window.__fireN=(n)=>{ const w=curW(); w.ammo=99999; for(let i=0;i<(n||1);i++){ w
 window.__spawnKind=(k)=>spawnZombie(k);
 window.__megaInfo=()=> mega&&mega.userData?{alive:!!mega.userData.alive,giga:!!mega.userData.giga,hp:mega.userData.hp,source:mega.userData.source}:null;
 window.__ore=()=>oreBlocks;
+window.__pap=()=>packAPunch();
 window.__groundHeightAt=(x,z,refY)=>groundHeightAt(x,z,refY);
 window.__zombies=()=>zombies;
 window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);
