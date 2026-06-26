@@ -120,6 +120,7 @@ const AU = (() => {
     explode(){ ensure(); const t=now(); noise(t,0.5,0.6,500); tone(60,t,0.5,'sawtooth',0.4,25); },
     round(){ ensure(); const t=now(); tone(80,t,0.9,'sawtooth',0.3,40); [196,233,294].forEach((f,i)=>tone(f,t+0.3+i*0.12,0.3,'triangle',0.18)); },
     groan(){ ensure(); const t=now(); tone(70+Math.random()*30,t,0.5,'sawtooth',0.08,40+Math.random()*20); },
+    monkey(){ ensure(); const t=now(); [520,660,430,720].forEach((f,i)=>tone(f,t+i*0.09,0.08,'square',0.18,f*1.5)); noise(t,0.22,0.14,1500); },
   };
 })();
 
@@ -716,19 +717,33 @@ function makeBlob(){ const m=new T.Mesh(new T.CircleGeometry(0.55,16),
   new T.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.38,depthWrite:false}));
   m.rotation.x=-Math.PI/2; m.position.y=0.03; return m; }
 
-function poolEntry(isCrawler){
-  const grp = isCrawler ? KIT.makeCrawler() : KIT.makeZombie();
+const MAX_VILLAGER=6, MAX_SAIYAN=2, MAX_MONKEY=4;   // special-enemy pools (pre-allocated like crawlers)
+function makeEnemyModel(kind){
+  switch(kind){
+    case 'c':        return KIT.makeCrawler();
+    case 'saiyan':   return KIT.makeSuperSaiyanZombie();
+    case 'monkey':   return KIT.makeMonkey();
+    case 'villager': return KIT.makeVillager();
+    default:         return KIT.makeZombie();
+  }
+}
+function poolEntry(kind){
+  const isCrawler = kind==='c';
+  const grp = makeEnemyModel(kind);
   // enemies don't cast dynamic shadows (perf) → cheap blob instead
   grp.add(makeBlob());
   grp.visible=false; scene.add(grp);
-  return { grp, anim:grp.userData.update, isCrawler, alive:false,
-           hp:0, speed:0, atkCd:0, dieT:0, riseT:0, zone:'outside', baseY:0,
+  return { grp, anim:grp.userData.update, kind, isCrawler, alive:false,
+           hp:0, speed:0, atkCd:0, dieT:0, riseT:0, zone:'outside', baseY:0, dmg:14,
            px:0, pz:0, stuckT:0, side:1, lastDist:1e9,   // stuck-detection + wall-follow state
            bodyY:isCrawler?0.34:1.2, bodyR:isCrawler?0.5:0.6, headY:isCrawler?0.4:1.74, headR:0.3 };
 }
 function initEnemyPools(){
-  for(let i=0;i<MAX_Z;i++) zombies.push(poolEntry(false));
-  for(let i=0;i<MAX_C;i++) zombies.push(poolEntry(true));
+  for(let i=0;i<MAX_Z;i++) zombies.push(poolEntry('z'));
+  for(let i=0;i<MAX_C;i++) zombies.push(poolEntry('c'));
+  for(let i=0;i<MAX_VILLAGER;i++) zombies.push(poolEntry('villager'));
+  for(let i=0;i<MAX_SAIYAN;i++)   zombies.push(poolEntry('saiyan'));
+  for(let i=0;i<MAX_MONKEY;i++)   zombies.push(poolEntry('monkey'));
 }
 
 function spawnPositionNearPlayer(){
@@ -746,16 +761,26 @@ function spawnPositionNearPlayer(){
   return best || [Math.cos(0)*46, Math.sin(0)*46];
 }
 
-function spawnZombie(crawler){
-  const e = zombies.find(z=>!z.alive && z.isCrawler===crawler) || zombies.find(z=>!z.alive);
-  if(!e) return false;
+function spawnZombie(kind){
+  if(kind===true) kind='c'; if(!kind) kind='z';      // back-compat: spawnZombie(true) → crawler
+  // resolve a free pool entry (villager<->z interchangeable; crawler/saiyan/monkey stay bounded)
+  let e = zombies.find(z=>!z.alive && z.kind===kind);
+  if(!e && kind==='z')        e = zombies.find(z=>!z.alive && z.kind==='villager');
+  if(!e && kind==='villager') e = zombies.find(z=>!z.alive && z.kind==='z');
+  if(!e) return false;                               // that pool is exhausted → skip this spawn
+  const k=e.kind;
   const [x,z,baseY,zone]=pickSpawn();
   e.zone=zone||'outside'; e.baseY=baseY||0;
   e.grp.position.set(x,e.baseY,z); e.grp.scale.setScalar(0.01); e.grp.visible=true;
   e.alive=true; e.dieT=0; e.riseT=0; e.atkCd=0;
+  e.stuckT=0; e.lastDist=1e9; e.side=(Math.random()<0.5?-1:1);
   const r=G.round;
-  e.hp = Math.round((e.isCrawler?70:100) * (1 + r*0.18)) + (e.isCrawler?0:r*4);
-  e.speed = (e.isCrawler?3.4:2.0) + Math.min(2.4, r*0.12) + Math.random()*0.4;
+  let hp = Math.round((e.isCrawler?70:100) * (1 + r*0.18)) + (e.isCrawler?0:r*4);
+  let speed = (e.isCrawler?3.4:2.0) + Math.min(2.4, r*0.12) + Math.random()*0.4;
+  let dmg = e.isCrawler?8:14;
+  if(k==='saiyan'){ hp*=20; speed*=1.75; dmg*=2; }            // rare elite
+  else if(k==='monkey'){ hp=Math.round(hp*2.2); speed*=1.3; dmg=20; }
+  e.hp=hp; e.speed=speed; e.dmg=dmg;
   G.aliveCount++;
   if(Math.random()<0.3) AU.groan();
   return true;
@@ -773,13 +798,19 @@ function spawnMiniBoss(){
 
 function spawnMegaBoss(px, pz, py, opts){
   opts=opts||{};
-  if(!mega){ mega=KIT.makeRoyalEgg(); scene.add(mega); }
+  // round-20 finale uses the distinct Giga model; round-12/altar use the Royal Egg → Mega
+  const wantGiga = opts.source==='lvl25';
+  if(!mega || !!mega.userData.giga !== wantGiga){
+    if(mega) scene.remove(mega);
+    mega = wantGiga ? KIT.makeGigaBoss() : KIT.makeRoyalEgg();
+    scene.add(mega);
+  }
   const scale=opts.scale||3.0; mega.scale.setScalar(scale);
   const yd = (px!=null)? {x:px,z:pz} : (G.bossYard||{x:0,z:-52});
   G.megaY = py||0; G.megaScale=scale;
   mega.position.set(yd.x, G.megaY+4.2, yd.z); mega.visible=true;
   mega.userData.hp = opts.hp||14000; mega.userData.maxhp=mega.userData.hp;
-  mega.userData.alive=true; mega.userData.hatch=0;
+  mega.userData.alive=true; mega.userData.hatch = wantGiga ? 2.0 : 0;   // giga awakens at once (no egg)
   mega.userData.speed=(1.4)*(opts.speedMul||1); mega.userData.dmg=45*(opts.dmgMul||1);
   mega.userData.source=opts.source||'altar'; mega.userData.atkCd=0;
   G.megaActive=true;
@@ -1138,6 +1169,10 @@ function startRound(n){
   G.toSpawn=G.budget; G.spawnTimer=0;
   updateRoundHUD(true); if(n>1) AU.round();
   if(n%5===0 && n>0 && n!==MEGA_ROUND && n!==GIGA_ROUND) spawnMiniBoss();
+  // monkey invasion every 6th (non-boss) round
+  if(n%6===0 && n>0 && n!==MEGA_ROUND && n!==GIGA_ROUND){
+    G.monkeyWave=Math.min(MAX_MONKEY, 2+Math.floor(n/6)); G.monkeyTimer=2.0;
+    AU.monkey(); toast('MONKEY INVASION',"they're coming for your pingas",'#ffcf3a'); }
 }
 function checkRoundProgress(){
   updateZleftHUD();
@@ -1154,6 +1189,9 @@ function directorTick(dt){
     if(G.intermission>0 && clock.elapsedTime>=G.intermission){ G.intermission=0; startRound(G.round+1); }
     return;
   }
+  // monkey invasion (queued on every 6th non-boss round): drip the apes in alongside the wave
+  if(G.monkeyWave>0 && G.aliveCount<MAX_Z){ G.monkeyTimer=(G.monkeyTimer||0)-dt;
+    if(G.monkeyTimer<=0){ G.monkeyTimer=1.4; if(spawnZombie('monkey')) G.monkeyWave--; } }
   if(G.toSpawn>0 && G.aliveCount<MAX_Z){
     G.spawnTimer-=dt;
     // brisk cadence + small bursts so the arena fills toward the 25-cap and stays pressured
@@ -1161,11 +1199,19 @@ function directorTick(dt){
     if(G.spawnTimer<=0){ G.spawnTimer=interval;
       const burst = 1 + (G.round>5?1:0) + (G.round>10?1:0);
       for(let k=0;k<burst && G.toSpawn>0 && G.aliveCount<MAX_Z;k++){
-        const crawler = G.round>=4 && Math.random()<0.22;
-        if(spawnZombie(crawler)) G.toSpawn--;
+        if(spawnZombie(pickEnemyKind())) G.toSpawn--;
       }
     }
   }
+}
+// what to spawn next: mostly walkers, some crawlers, a few villager variants, a 0.1% super-saiyan
+function pickEnemyKind(){
+  const r=G.round;
+  if(r>=8 && Math.random()<0.001) return 'saiyan';     // 0.1% rare elite
+  const roll=Math.random();
+  if(r>=4 && roll<0.22) return 'c';                    // crawler
+  if(r>=3 && roll<0.40) return 'villager';             // cosmetic villager variant
+  return 'z';
 }
 
 /* ════════════════════ ENEMY AI (fixed-step) ════════════════════ */
@@ -1271,7 +1317,7 @@ function updateEnemies(dt){
       e.grp.position.x=c.x; e.grp.position.z=c.z;
     } else {
       // melee — only if on roughly the same level as the player
-      if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.isCrawler?8:14); } }
+      if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.dmg||14); } }
       e.stuckT=0;
     }
     e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
@@ -1499,7 +1545,7 @@ function resetRun(){
   for(const d of drops){ scene.remove(d.grp); } drops.length=0;
   for(const n of nades){ scene.remove(n.grp); } nades.length=0;
   G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
-  G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false;
+  G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false; G.monkeyWave=0; G.monkeyTimer=0;
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
@@ -1658,6 +1704,8 @@ window.__startRoundForTest=(n)=>{ G.round=n-1; G.intermission=clock.elapsedTime;
 window.__camera=()=>camera;
 window.__giveWeapon=(t,pap)=>{ giveWeapon(t,!!pap); return curW().type; };
 window.__fireN=(n)=>{ const w=curW(); w.ammo=99999; for(let i=0;i<(n||1);i++){ w.lastShot=-999; fire(); } return curW().type; };
+window.__spawnKind=(k)=>spawnZombie(k);
+window.__megaInfo=()=> mega&&mega.userData?{alive:!!mega.userData.alive,giga:!!mega.userData.giga,hp:mega.userData.hp,source:mega.userData.source}:null;
 window.__groundHeightAt=(x,z,refY)=>groundHeightAt(x,z,refY);
 window.__zombies=()=>zombies;
 window.__clampArena=(x,z,rad,isP,py)=>clampArena(x,z,rad,isP,py);

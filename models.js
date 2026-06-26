@@ -574,6 +574,96 @@ class Kit {
     g.userData.update=(t)=>{ g.rotation.y=Math.sin(t*0.35)*0.1; face.position.y=4.85+Math.sin(t*1.1)*0.06; };
     return g; // ~6 units tall; scale up at placement for 10x player
   }
+  // ── procedural face billboard (self-contained; real PNGs swap in during the audio/faces pass) ──
+  faceTex(kind){
+    const key='_ft_'+kind; if(this[key]) return this[key];
+    const c=document.createElement('canvas'); c.width=128; c.height=128; const x=c.getContext('2d');
+    if(kind==='monkey'){
+      x.fillStyle='#5a3b22'; x.fillRect(0,0,128,128);
+      x.fillStyle='#caa172'; x.beginPath(); x.ellipse(64,76,40,40,0,0,7); x.fill();         // muzzle
+      x.fillStyle='#3a2516'; [44,84].forEach(ex=>{ x.beginPath(); x.arc(ex,52,12,0,7); x.fill(); });
+      x.fillStyle='#fff'; [44,84].forEach(ex=>{ x.beginPath(); x.arc(ex,52,6,0,7); x.fill(); });
+      x.fillStyle='#111'; [44,84].forEach(ex=>{ x.beginPath(); x.arc(ex,53,3,0,7); x.fill(); });
+      x.fillStyle='#2a1a10'; [56,72].forEach(nx=>{ x.beginPath(); x.ellipse(nx,80,4,6,0,0,7); x.fill(); });
+      x.strokeStyle='#2a1a10'; x.lineWidth=4; x.beginPath(); x.arc(64,92,16,0.15*Math.PI,0.85*Math.PI); x.stroke();
+    } else { // villager
+      x.fillStyle='#6f8a55'; x.fillRect(0,0,128,128);
+      x.fillStyle='#5b7346'; x.fillRect(36,86,56,42);                                        // robe collar
+      x.fillStyle='#7a9560'; x.fillRect(54,40,20,58);                                        // big nose
+      x.fillStyle='#1a241a'; x.fillRect(34,38,60,7);                                         // unibrow
+      x.fillStyle='#101810'; x.fillRect(42,48,12,7); x.fillRect(76,48,12,7);                 // eyes
+      x.strokeStyle='#33402b'; x.lineWidth=3; x.beginPath(); x.moveTo(54,104); x.lineTo(74,104); x.stroke();
+    }
+    const t=new THREE.CanvasTexture(c); t.anisotropy=4; if('sRGBEncoding' in THREE) t.encoding=THREE.sRGBEncoding; this[key]=t; return t;
+  }
+  faceBillboard(kind,w){ return new THREE.Mesh(new THREE.PlaneGeometry(w,w), new THREE.MeshBasicMaterial({ map:this.faceTex(kind), transparent:true })); }
+
+  // EVENT ENEMY — ape body + streamer-face billboard (invades on every 6th round)
+  makeMonkey(){
+    const g=new THREE.Group();
+    const fur=this.mat(0x4a3320,0.96,0), furD=this.mat(0x32230f,0.96,0), skin=this.mat(0xcaa172,0.85,0);
+    const torso=this.box(0.62,0.78,0.4, fur); torso.position.set(0,1.18,0); torso.rotation.x=0.18; g.add(torso);
+    g.add(this.at(this.box(0.5,0.4,0.34, skin),0,1.02,0.07));
+    const head=new THREE.Group(); head.position.set(0,1.66,0.05); g.add(head);
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.27,14,14), fur));
+    const face=this.faceBillboard('monkey',0.5); face.position.set(0,0,0.26); head.add(face);
+    [-1,1].forEach(s=> head.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.12,10,10),fur), s*0.26,0.05,0)));
+    const armL=this.limb(skin,fur); armL.scale.set(1.2,1.4,1.2); armL.position.set(-0.42,1.5,0.04); armL.rotation.set(-0.9,0,0.25); g.add(armL);
+    const armR=this.limb(skin,fur); armR.scale.set(1.2,1.4,1.2); armR.position.set(0.42,1.5,0.04); armR.rotation.set(-0.8,0,-0.25); g.add(armR);
+    const legL=this.leg(furD); legL.scale.set(1,0.8,1); legL.position.set(-0.17,0.82,0); g.add(legL);
+    const legR=this.leg(furD); legR.scale.set(1,0.8,1); legR.position.set(0.17,0.82,0); g.add(legR);
+    g.userData.update=(t)=>{ g.position.y=Math.abs(Math.sin(t*5))*0.05; g.rotation.z=Math.sin(t*2.4)*0.05;
+      legL.rotation.x=Math.sin(t*5)*0.55; legR.rotation.x=-Math.sin(t*5)*0.55;
+      armL.rotation.z=0.25+Math.sin(t*4)*0.18; armR.rotation.z=-0.25-Math.sin(t*4+1)*0.18; head.rotation.z=Math.sin(t*3)*0.1; };
+    return g;
+  }
+  // RARE (0.1%) — gold-hair zombie with a flaring aura; 20x HP, faster, hits harder
+  makeSuperSaiyanZombie(){
+    const g=this.makeZombie();
+    const gold=this.glow(0xffe23a,2.2);
+    const hair=new THREE.Group(); hair.position.set(0,1.92,0.06); g.add(hair);
+    for(let i=0;i<9;i++){ const a=(i/9)*Math.PI*2; const spike=new THREE.Mesh(new THREE.ConeGeometry(0.07,0.34,5),gold);
+      spike.position.set(Math.cos(a)*0.12,0.12,Math.sin(a)*0.1); spike.rotation.set(0.5*Math.cos(a),0,-0.5*Math.sin(a)); hair.add(spike); }
+    hair.add(new THREE.Mesh(new THREE.ConeGeometry(0.1,0.42,6),gold));
+    const aura=new THREE.Mesh(new THREE.SphereGeometry(0.7,16,16),
+      new THREE.MeshBasicMaterial({ color:0xffe23a, transparent:true, opacity:0.18, depthWrite:false, blending:THREE.AdditiveBlending }));
+    aura.position.y=1.2; aura.scale.set(1,1.7,1); g.add(aura);
+    const zu=g.userData.update;
+    g.userData.update=(t)=>{ if(zu)zu(t); hair.scale.setScalar(0.85+Math.sin(t*12)*0.15);
+      aura.material.opacity=0.14+Math.abs(Math.sin(t*9))*0.12; aura.rotation.y=t*2; };
+    g.userData.saiyan=true; return g;
+  }
+  // ROUND-20 FINALE — distinct giga model (mega boss + obsidian crown, horns, flame ring)
+  makeGigaBoss(){
+    const g=new THREE.Group();
+    const mb=this.makeMegaBoss(); g.add(mb);
+    const ember=this.glow(0xff4a14,2.0), bone=this.mat(0x140a0a,0.6,0);
+    const crown=new THREE.Group(); crown.position.set(0,5.6,-0.2); g.add(crown);
+    for(let i=0;i<8;i++){ const a=i/8*Math.PI*2; crown.add(this.at(new THREE.Mesh(new THREE.ConeGeometry(0.18,0.9,5),bone),Math.cos(a)*1.0,0,Math.sin(a)*1.0)); }
+    [-1,1].forEach(s=> g.add(this.at(new THREE.Mesh(new THREE.ConeGeometry(0.28,1.2,6),bone), s*1.2,5.4,0.3)));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(2.4,0.18,10,28), ember); ring.rotation.x=Math.PI/2; ring.position.y=0.3; g.add(ring);
+    const mu=mb.userData.update; g.userData.face=mb.userData.face;
+    g.userData.update=(t)=>{ if(mu)mu(t); ring.material.emissiveIntensity=1.4+Math.sin(t*4)*0.8; ring.rotation.z=t*0.6; crown.rotation.y=Math.sin(t*0.5)*0.2; };
+    g.userData.giga=true; return g;
+  }
+  // VILLAGER zombie variant — big-nose face billboard, crossed arms
+  makeVillager(){
+    const g=new THREE.Group();
+    const skin=this.mat(0x6f8a55,0.9,0), robe=this.mat(0x4a3a6a,0.85,0), robe2=this.mat(0x6b4a2a,0.9,0);
+    const torso=this.box(0.56,0.86,0.34, robe); torso.position.set(0,1.22,0); g.add(torso);
+    g.add(this.at(this.box(0.6,0.3,0.36, robe2),0,0.92,0));
+    const head=new THREE.Group(); head.position.set(0,1.78,0.05); g.add(head);
+    head.add(this.box(0.32,0.38,0.3, skin));
+    head.add(this.at(this.box(0.12,0.34,0.22, skin),0,-0.04,0.2));
+    const face=this.faceBillboard('villager',0.36); face.position.set(0,0.02,0.17); head.add(face);
+    const armL=this.limb(skin,robe); armL.position.set(-0.34,1.5,0.12); armL.rotation.set(-1.1,0.4,0.2); g.add(armL);
+    const armR=this.limb(skin,robe); armR.position.set(0.34,1.5,0.12); armR.rotation.set(-1.1,-0.4,-0.2); g.add(armR);
+    const legL=this.leg(robe); legL.position.set(-0.15,0.92,0); g.add(legL);
+    const legR=this.leg(robe); legR.position.set(0.15,0.92,0); g.add(legR);
+    g.userData.update=(t)=>{ g.position.y=Math.abs(Math.sin(t*4))*0.04; g.rotation.z=Math.sin(t*2)*0.05;
+      legL.rotation.x=Math.sin(t*4)*0.45; legR.rotation.x=-Math.sin(t*4)*0.45; head.rotation.z=Math.sin(t*2.4)*0.07; };
+    return g;
+  }
   makeRoyalEgg() {
     const g=new THREE.Group();
     const shell=this.mat(0xf0e6c8,0.55,0.1), gold=this.mat(0xd9a441,0.4,0.6);
