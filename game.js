@@ -553,7 +553,7 @@ function damageOre(o, dmg){
   if(!o.alive) return; o.hp-=dmg;
   if(o.hp<=0){ o.alive=false; o.grp.visible=false; o.respawn=clock.elapsedTime+18;
     fxExplosion(o.x,o.y,o.z, o.kind==='diamond'?0x6ff0ff:o.kind==='emerald'?0x2ee06a:0xffb060, 0.6);
-    AU.buy(); addPoints(o.reward); toast('MINED '+o.kind.toUpperCase(),'+'+o.reward,'#7fd0ff'); }
+    AU.buy(); addPoints(o.reward); mcOnMined(o.kind); toast('MINED '+o.kind.toUpperCase(),'+'+o.reward,'#7fd0ff'); }
 }
 function updateOre(dt){
   const et=clock.elapsedTime;
@@ -1208,7 +1208,8 @@ function damageMega(dmg){ if(!mega||!mega.userData.alive) return; mega.userData.
       toast('PINGAS BOSS DOWN','BUNKER UNLOCKED · the siege continues','#ff48c0'); }
     else if(src==='lvl25'){ G.lvl25Done=true; addPoints(6000);
       if(round25Gate){ round25Gate.cleared=true; round25Gate.grp.visible=false; }   // round-25 portal opens
-      toast('GIGA PINGAS DOWN','+6000 · round-25 gate open','#ff48c0'); }
+      mcUnlock();                                                                    // unlock MINECRAFT MODE (press E)
+      toast('GIGA PINGAS DOWN','+6000 · MINECRAFT MODE unlocked','#ff48c0'); }
     else { G.megaDefeated=true; addPoints(3000); toast('PINGAS BOSS DOWN','+3000','#ff48c0'); }
     updateBossBar(); checkRoundProgress();   // resume the waves — the game never ends now
   } }
@@ -1706,8 +1707,67 @@ function flashReloadHint(show){ $('reloadHint').style.opacity = show? '1':'0'; }
 function setCharge(k){ $('chargebar').style.width=(k*120)+'px'; }
 
 /* ════════════════════ INPUT / POINTER LOCK ════════════════════ */
+/* ════════════════════ MINECRAFT MODE — inventory + 3×3 crafting ════════════════════ */
+const MC_TYPES = ['cobblestone','wood','plank','coal','steel','obsidian','pingasore','diamond'];
+const MC_ORE_DROP = { coal:'coal', iron:'steel', gold:'pingasore', redstone:'obsidian', diamond:'diamond', emerald:'pingasore' };
+const MC_RECIPES = [
+  { name:'Planks',         out:{type:'plank',  count:4}, shape:[['wood']] },
+  { name:'Crafting Bench', out:{type:'bench',  count:1}, shape:[['plank','plank'],['plank','plank']] },
+  { name:'Coal Block',     out:{type:'coal',   count:1}, shape:[['coal','coal','coal'],['coal','coal','coal'],['coal','coal','coal']] },
+  { name:'Steel Ingot',    out:{type:'steel',  count:2}, shape:[['cobblestone','coal'],['coal','cobblestone']] },
+  { name:'Obsidian',       out:{type:'obsidian',count:1}, shape:[['cobblestone','steel','cobblestone'],['steel','coal','steel'],['cobblestone','steel','cobblestone']] },
+  { name:'Diamond',        out:{type:'diamond',count:1}, shape:[['obsidian','pingasore','obsidian'],['pingasore','steel','pingasore'],['obsidian','pingasore','obsidian']] },
+  { name:'Pingas Core',    out:{type:'pingasore',count:1}, shape:[['','diamond',''],['diamond','obsidian','diamond'],['','diamond','']] },
+];
+G.mcGrid = new Array(9).fill(null);
+let mcSel = null, mcMatch = null;
+function mcInitInventory(){ G.inventory = { cobblestone:16, wood:8, plank:0, coal:6, steel:4, obsidian:2, pingasore:1, diamond:0 }; }
+function mcGiveBlock(type, n){ if(!G.inventory || !MC_TYPES.includes(type)) return; G.inventory[type]=(G.inventory[type]||0)+(n||1);
+  if(G.minecraftMode && !$('mcInv').classList.contains('hidden')) mcRenderBag(); }
+function mcOnMined(kind){ const t=MC_ORE_DROP[kind]; if(t) mcGiveBlock(t,1); mcGiveBlock('cobblestone',1); }
+function mcBlkHTML(type){ return '<div class="mcBlk" data-t="'+type+'"></div>'; }
+function mcNormalize(){ let cells=[]; for(let r=0;r<3;r++) cells.push([G.mcGrid[r*3],G.mcGrid[r*3+1],G.mcGrid[r*3+2]]);
+  if(!cells.some(row=>row.some(c=>c))) return null;
+  while(cells.length && cells[0].every(c=>!c)) cells.shift();
+  while(cells.length && cells[cells.length-1].every(c=>!c)) cells.pop();
+  while(cells[0].length>1 && cells.every(row=>!row[0])) cells.forEach(row=>row.shift());
+  while(cells[0].length>1 && cells.every(row=>!row[row.length-1])) cells.forEach(row=>row.pop());
+  return cells.map(row=>row.map(c=>c||'')); }
+function mcShapesEqual(a,b){ if(a.length!==b.length) return false;
+  for(let r=0;r<a.length;r++){ if(a[r].length!==b[r].length) return false; for(let c=0;c<a[r].length;c++) if((a[r][c]||'')!==(b[r][c]||'')) return false; } return true; }
+function mcEvalRecipe(){ const norm=mcNormalize(); mcMatch=null;
+  if(norm) for(const rec of MC_RECIPES) if(mcShapesEqual(norm,rec.shape)){ mcMatch=rec; break; }
+  const rs=$('mcResult'), rn=$('mcResultName'), btn=$('mcCraftBtn');
+  if(mcMatch){ rs.innerHTML=mcBlkHTML(mcMatch.out.type)+(mcMatch.out.count>1?'<span class="mcCount">'+mcMatch.out.count+'</span>':''); rs.classList.add('ready'); rn.textContent=mcMatch.name; btn.disabled=false; }
+  else { rs.innerHTML=''; rs.classList.remove('ready'); rn.textContent='—'; btn.disabled=true; } }
+function mcSetCell(i,type){ if(type){ if(!G.inventory[type]) return; G.inventory[type]--; }
+  if(G.mcGrid[i]) G.inventory[G.mcGrid[i]]=(G.inventory[G.mcGrid[i]]||0)+1;
+  G.mcGrid[i]=type||null; mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
+function mcClearGrid(){ for(let i=0;i<9;i++) if(G.mcGrid[i]){ G.inventory[G.mcGrid[i]]++; G.mcGrid[i]=null; } mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
+function mcCraft(){ if(!mcMatch) return; for(let i=0;i<9;i++) G.mcGrid[i]=null; const o=mcMatch.out;
+  if(o.type==='bench') G.inventory.bench=(G.inventory.bench||0)+o.count; else mcGiveBlock(o.type,o.count);
+  if(AU&&AU.buy) AU.buy(); toast('CRAFTED '+mcMatch.name.toUpperCase(),'+'+o.count,'#9fd0ff'); mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
+function mcRenderGrid(){ document.querySelectorAll('#mcGrid .mcSlot').forEach(el=>{ const t=G.mcGrid[+el.dataset.grid]; el.innerHTML=t?mcBlkHTML(t):''; }); }
+function mcRenderBag(){ const bag=$('mcBag'); bag.innerHTML=''; const all=MC_TYPES.concat(G.inventory.bench?['bench']:[]);
+  all.forEach(type=>{ const n=G.inventory[type]||0; const el=document.createElement('div');
+    el.className='mcSlot'+(n<=0?' empty':'')+(mcSel===type?' sel':''); el.dataset.bag=type;
+    el.innerHTML=mcBlkHTML(type)+(n>0?'<span class="mcCount">'+n+'</span>':''); if(n<=0) el.querySelector('.mcBlk').style.opacity='.25'; bag.appendChild(el); }); }
+function mcOpen(){ if(!G.minecraftMode || G.phase!=='play') return; G.phase='inv';
+  document.exitPointerLock&&document.exitPointerLock(); $('mcInv').classList.remove('hidden'); mcSel=null; mcRenderGrid(); mcRenderBag(); mcEvalRecipe(); }
+function mcClose(){ if(G.phase!=='inv') return; mcClearGrid(); $('mcInv').classList.add('hidden'); G.phase='play'; lockMouse(); }
+function mcToggle(){ (G.phase==='inv')?mcClose():mcOpen(); }
+function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true;
+  $('mcGrid').addEventListener('click', e=>{ const s=e.target.closest('.mcSlot'); if(!s) return; const i=+s.dataset.grid;
+    if(G.mcGrid[i]) mcSetCell(i,null); else if(mcSel) mcSetCell(i,mcSel); });
+  $('mcGrid').addEventListener('contextmenu', e=>{ e.preventDefault(); const s=e.target.closest('.mcSlot'); if(s) mcSetCell(+s.dataset.grid,null); });
+  $('mcBag').addEventListener('click', e=>{ const s=e.target.closest('.mcSlot'); if(!s||s.classList.contains('empty')) return; mcSel=(mcSel===s.dataset.bag)?null:s.dataset.bag; mcRenderBag(); });
+  $('mcResult').addEventListener('click', mcCraft); $('mcCraftBtn').addEventListener('click', mcCraft); }
+function mcUnlock(){ if(G.minecraftMode) return; G.minecraftMode=true; mcInitInventory(); mcBindOverlay();
+  toast('MINECRAFT MODE UNLOCKED','press E for inventory + crafting','#5a9e3a'); }
+
 function bindInput(){
   document.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); G.keys[k]=true;
+    if(k==='e' && G.minecraftMode && (G.phase==='play'||G.phase==='inv')){ mcToggle(); return; }
     if(G.phase!=='play') return;
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
@@ -1761,6 +1821,7 @@ function resetRun(){
   for(const n of nades){ scene.remove(n.grp); } nades.length=0;
   G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
   G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false; G.monkeyWave=0; G.monkeyTimer=0;
+  G.minecraftMode=false; G.inventory=null; G.mcGrid=new Array(9).fill(null); { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
   G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;

@@ -133,6 +133,35 @@
   .toggle.off{opacity:.5}
   #fps{position:absolute; left:8px; top:6px; font-size:12px; color:#5fae6a; z-index:20; opacity:.0; font-family:monospace}
   #fps.on{opacity:.85}
+  /* ════════ MINECRAFT MODE — inventory/crafting overlay ════════ */
+  #mcInv{position:absolute; inset:0; z-index:35; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(12,18,28,.62), rgba(3,5,9,.9)); font-family:inherit}
+  #mcInv.hidden{display:none !important}
+  #mcPanel{width:520px; max-width:92vw; padding:22px 24px 20px; background:linear-gradient(180deg,rgba(22,28,40,.96),rgba(12,16,26,.97)); border:3px solid #2a3346; border-radius:4px; box-shadow:0 0 0 2px #0a0e16, 0 14px 50px rgba(0,0,0,.7)}
+  #mcTitle{font-size:20px; font-weight:700; letter-spacing:4px; color:#cfe0ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px}
+  #mcTitle span{font-size:11px; letter-spacing:2px; color:#6f819f}
+  #mcCraftRow{display:flex; align-items:center; justify-content:center; gap:18px; margin-bottom:18px}
+  #mcGrid{display:grid; grid-template-columns:repeat(3,48px); grid-template-rows:repeat(3,48px); gap:5px}
+  #mcArrow{font-size:26px; color:#5c6f8d} #mcResultWrap{display:flex; flex-direction:column; align-items:center; gap:6px}
+  #mcResultName{font-size:12px; letter-spacing:2px; color:#9fb2cf; min-height:14px; text-transform:uppercase}
+  .mcSlot{width:48px; height:48px; background:#12161f; border:2px solid #3a455c; box-shadow:inset 0 3px 0 rgba(0,0,0,.45); border-radius:2px; position:relative; cursor:pointer; transition:border-color .1s}
+  .mcSlot:hover{border-color:#5aa0ff} .mcSlot.mcResult{width:60px; height:60px; border-color:#ffc24a}
+  .mcSlot.mcResult.ready{box-shadow:inset 0 0 14px rgba(255,194,74,.5), 0 0 16px rgba(255,194,74,.35)}
+  .mcSlot.sel{border-color:#5aa0ff; box-shadow:inset 0 0 12px rgba(90,160,255,.5)}
+  .mcBlk{position:absolute; inset:5px; border-radius:1px; box-shadow:inset -4px -4px 0 rgba(0,0,0,.35), inset 4px 4px 0 rgba(255,255,255,.12)}
+  .mcBlk[data-t="cobblestone"]{background:#8a8a8f} .mcBlk[data-t="wood"]{background:#6b4a28} .mcBlk[data-t="plank"]{background:#9c7a48}
+  .mcBlk[data-t="coal"]{background:#8a8a8f; background-image:radial-gradient(#16161a 26%,transparent 27%); background-size:14px 14px; background-position:2px 3px}
+  .mcBlk[data-t="steel"]{background:#8a8a8f; background-image:radial-gradient(#d8e0e8 26%,transparent 27%); background-size:13px 13px; background-position:3px 2px}
+  .mcBlk[data-t="obsidian"]{background:#251935; background-image:radial-gradient(#6a3aa0 24%,transparent 25%); background-size:12px 12px; background-position:4px 4px}
+  .mcBlk[data-t="pingasore"]{background:#9c8a3a; background-image:radial-gradient(#ffd23a 28%,transparent 29%); background-size:12px 12px; background-position:3px 4px}
+  .mcBlk[data-t="diamond"]{background:#4fe8e0; background-image:radial-gradient(#6ff6ee 30%,transparent 31%); background-size:12px 12px; background-position:3px 3px}
+  .mcBlk[data-t="bench"]{background:#9c7a48; background-image:linear-gradient(#6b4a28 2px,transparent 2px),linear-gradient(90deg,#6b4a28 2px,transparent 2px); background-size:12px 12px}
+  .mcCount{position:absolute; right:1px; bottom:0; font-size:12px; font-weight:700; color:#fff; text-shadow:1px 1px 0 #000; pointer-events:none}
+  #mcInvLabel{font-size:12px; letter-spacing:3px; color:#7f93b3; text-transform:uppercase; margin-bottom:6px}
+  #mcBag{display:flex; flex-wrap:wrap; gap:5px; padding:8px; background:rgba(8,12,18,.6); border:2px solid #2a3346; border-radius:3px; min-height:62px}
+  #mcBag .mcSlot.empty{opacity:.45; cursor:default}
+  #mcHint{margin-top:14px; font-size:11px; letter-spacing:1px; color:#6f819f; line-height:1.6} #mcHint b{color:#9fb6db}
+  #mcCraftBtn{pointer-events:auto; cursor:pointer; margin-top:12px; width:100%; padding:11px; font-family:inherit; font-size:16px; font-weight:700; letter-spacing:3px; text-transform:uppercase; color:#eaf2ff; background:linear-gradient(180deg,rgba(40,60,95,.7),rgba(18,28,46,.85)); border:2px solid rgba(120,160,210,.45); border-radius:6px}
+  #mcCraftBtn:hover{border-color:#5aa0ff} #mcCraftBtn:disabled{opacity:.4; cursor:default}
 </style>
 </head>
 <body>
@@ -175,6 +204,25 @@
     <div id="prompt"><span class="key">F</span><div class="txt"></div></div>
     <div id="toast"></div>
     <div id="subtoast"></div>
+    <!-- MINECRAFT MODE: inventory + 3×3 crafting (unlocked after the round-20 giga boss) -->
+    <div id="mcInv" class="hidden">
+      <div id="mcPanel">
+        <div id="mcTitle">CRAFTING<span>press E to close</span></div>
+        <div id="mcCraftRow">
+          <div id="mcGrid">
+            <div class="mcSlot" data-grid="0"></div><div class="mcSlot" data-grid="1"></div><div class="mcSlot" data-grid="2"></div>
+            <div class="mcSlot" data-grid="3"></div><div class="mcSlot" data-grid="4"></div><div class="mcSlot" data-grid="5"></div>
+            <div class="mcSlot" data-grid="6"></div><div class="mcSlot" data-grid="7"></div><div class="mcSlot" data-grid="8"></div>
+          </div>
+          <div id="mcArrow">▶</div>
+          <div id="mcResultWrap"><div class="mcSlot mcResult" id="mcResult"></div><div id="mcResultName">—</div></div>
+        </div>
+        <div id="mcInvLabel">INVENTORY</div>
+        <div id="mcBag"></div>
+        <div id="mcHint"><b>CLICK</b> a block then a grid cell · <b>RIGHT-CLICK</b> a cell to clear · <b>CRAFT</b> to take the result</div>
+        <button id="mcCraftBtn">CRAFT</button>
+      </div>
+    </div>
   </div>
 
   <!-- LOADING -->

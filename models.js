@@ -809,11 +809,17 @@ class Kit {
     g.add(this.at(this.cyl(5.4,7.4,9, barkD,'y'),0,4.5,0));
     for(let i=0;i<8;i++){ const a=i/8*Math.PI*2; g.add(this.at(this.box(0.6,TH*0.82,0.6,barkD),Math.cos(a)*4.3,TH*0.46,Math.sin(a)*4.3)); }
     const LADX=0, LADZ=LZ, CUTR=8.8;
+    // canopy → 2 InstancedMesh (one per leaf material) instead of ~36 sphere meshes
+    const canopyA=[], canopyB=[];
     for(let i=0;i<4;i++){ const y=60+i*5, r=12-i*1.8; for(let k=0;k<8;k++){ const a=k/8*Math.PI*2+i*0.6; const px=Math.cos(a)*r, pz=Math.sin(a)*r;
       if(Math.hypot(px-LADX, pz-LADZ) < CUTR) continue;
-      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(5.5-i*0.5,10,8), k%2?leaf:leaf2), px, y, pz)); } }
+      (k%2?canopyA:canopyB).push({x:px,y,z:pz,r:5.5-i*0.5}); } }
     for(let i=0;i<4;i++){ const y=60+i*5; for(let a=Math.PI*0.62; a<=Math.PI*1.38; a+=Math.PI*0.19){ const px=LADX+Math.cos(a)*CUTR, pz=LADZ+Math.sin(a)*CUTR;
-      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(3.0,9,7), (i+a)%2<1?leaf:leaf2), px, y, pz)); } }
+      ((i+a)%2<1?canopyA:canopyB).push({x:px,y,z:pz,r:3.0}); } }
+    const baseSphere=new THREE.SphereGeometry(1,10,8);
+    const addCanopy=(list,mat)=>{ if(!list.length) return; const im=new THREE.InstancedMesh(baseSphere,mat,list.length); const m=new THREE.Matrix4();
+      list.forEach((s,i)=>{ m.makeScale(s.r,s.r,s.r); m.setPosition(s.x,s.y,s.z); im.setMatrixAt(i,m); }); im.instanceMatrix.needsUpdate=true; im.castShadow=im.receiveShadow=true; g.add(im); };
+    addCanopy(canopyA, leaf); addCanopy(canopyB, leaf2);
     g.add(this.at(new THREE.Mesh(new THREE.CylinderGeometry(CUTR-3.4, CUTR-3.4, 30, 18, 1, true), new THREE.MeshStandardMaterial({ color:0x241a0e, roughness:1, metalness:0, side:THREE.BackSide })), LADX, 60, LADZ));
     const plat=new THREE.Group(); plat.position.set(0,TH,0); g.add(plat); g.userData.platform=plat;
     plat.add(this.at(this.box(PAD,1.3,PAD,this.mcMat('plank')),0,0,0));
@@ -841,10 +847,13 @@ class Kit {
     const sign=new THREE.Mesh(new THREE.PlaneGeometry(7,1.4), new THREE.MeshBasicMaterial({ map:this.label('SNIPER','#bfe0ff'), transparent:true })); sign.position.set(-11,4,3); sign.rotation.y=1.4; plat.add(sign);
     const plight=new THREE.PointLight(0xffd9a0,1.0,46); plight.position.set(0,7,0); plat.add(plight);
     const ladder=new THREE.Group(); ladder.position.set(0,0,LZ); g.add(ladder); g.userData.ladder=ladder;
-    [-0.85,0.85].forEach(x=> ladder.add(this.at(this.box(0.2,TH,0.2,this.mcMat('wood')), x,TH/2,0)));
-    for(let i=0;i<Math.floor(TH/1.0);i++) ladder.add(this.at(this.box(2.0,0.16,0.16,this.mcMat('wood')),0,0.7+i*1.0,0));
+    const ladM=this.mcMat('wood');                                     // shared material for rails + rungs
+    [-0.85,0.85].forEach(x=> ladder.add(this.at(this.box(0.2,TH,0.2,ladM), x,TH/2,0)));
+    const nRungs=Math.floor(TH/1.0), rungs=new THREE.InstancedMesh(new THREE.BoxGeometry(2.0,0.16,0.16),ladM,nRungs);
+    { const m=new THREE.Matrix4(); for(let i=0;i<nRungs;i++){ m.makeTranslation(0,0.7+i*1.0,0); rungs.setMatrixAt(i,m); } rungs.instanceMatrix.needsUpdate=true; }
+    rungs.castShadow=rungs.receiveShadow=true; ladder.add(rungs);      // 94 rungs → 1 InstancedMesh
     const climbers=[];
-    for(let i=0;i<6;i++){ const z=(i%3===0)?this.makeCrawler():this.makeZombie(); z.scale.setScalar(0.92); g.add(z); climbers.push({ z, off:i/6, u:z.userData.update }); }
+    for(let i=0;i<3;i++){ const z=(i%3===0)?this.makeCrawler():this.makeZombie(); z.scale.setScalar(0.92); g.add(z); climbers.push({ z, off:i/3, u:z.userData.update }); }
     g.userData.update=(t)=>{
       mUps.forEach(u=>{ try{ u(t); }catch(e){} });
       climbers.forEach((c,i)=>{ const p=(t*0.32+c.off)%1.45;
