@@ -636,7 +636,11 @@ function spawnValid(x,z,zone){
   const lx=x-CAMP_X, lz=z-CAMP_Z, r=Math.hypot(lx,lz);
   if(zone==='outside'){
     if(Math.abs(lx)<TOWER_H+1 && Math.abs(lz)<TOWER_H+1) return false; // not in the tower body
-    if((!megaGate || !megaGate.open) && Math.abs(x-MCX)<MH-3 && Math.abs(z-MCZ)<MH-3) return false; // not trapped in the sealed compound
+    // keep spawns where the player can actually reach them: on the camp ring road, OR inside the
+    // Minecraft compound once the mega-gate is open. Never out in the open green no-man's-land.
+    const inCampRing = r>TOWER_H+1.5 && r<R_OUT-2;
+    const inMcZone   = megaGate && megaGate.open && Math.abs(x-MCX)<MH-4 && Math.abs(z-MCZ)<MH-4;
+    if(!inCampRing && !inMcZone) return false;
     if(regionLockedAt(x,z)) return false;                             // not in a locked arc
   } else if(zone==='inside'){
     if(r<STAIR_RIN+1 || r>TOWER_H-2) return false;                    // in the room, off the column
@@ -1468,6 +1472,16 @@ function clampArena(x,z, rad, isPlayer, playerY){
       if(ir<STAIR_RIN+rad && ir>0.001){ const f=(STAIR_RIN+rad)/ir; lx*=f; lz*=f; }
       else if(!roofOpen && (playerY||0) > STAIR_TOP-3+EYE && ir>STAIR_ROUT-1){ const f=(STAIR_ROUT-1)/ir; lx*=f; lz*=f; }
     }
+    // SOFT FENCE — keep the player on the camp ring road; the only way out is the mega-gate road
+    // corridor (a gap toward the gate). Once the $100k gate is breached, roam free.
+    if(megaGate && !megaGate.open){
+      const fr=Math.hypot(lx,lz);
+      if(fr>R_OUT-rad && fr>0.001){
+        const gAng=Math.atan2(megaGate.z-CAMP_Z, megaGate.x-CAMP_X);
+        let dA=Math.abs(Math.atan2(lz,lx)-gAng); if(dA>Math.PI) dA=2*Math.PI-dA;
+        if(dA>0.6){ const f=(R_OUT-rad)/fr; lx*=f; lz*=f; }   // outside the road corridor → push back to the fence
+      }
+    }
   } else {
     const h=W+rad;
     if(Math.abs(lx)<h && Math.abs(lz)<h){
@@ -2009,15 +2023,16 @@ function addMineNode(grp,x,z,kind,hp,drops,r){ grp.position.set(x,0,z); KIT.shad
   mineables.push({grp,x,y:0.7,z,r:r||0.9,hp,maxhp:hp,drops,kind,alive:true,respawn:0}); }
 function spawnMineNodes(){
   if(mineables.length) return;                  // once
-  const spots=[];
-  // scatter trees + rocks across the open Minecraft ¾ of the map, away from the tower camp
-  for(let i=0;i<46;i++){ const a=Math.random()*Math.PI*2, rad=24+Math.random()*92;
-    const x=Math.cos(a)*rad, z=Math.sin(a)*rad;
-    if(Math.abs(x-CAMP_X)<TOWER_H+6 && Math.abs(z-CAMP_Z)<TOWER_H+6) continue;   // not on the camp
-    spots.push([x,z,Math.random()<0.55?'tree':'rock']); }
-  for(const [x,z,kind] of spots){
-    if(kind==='tree') addMineNode(KIT.makeTreeNode(), x,z,'tree',30,[{id:'wood',p:1,min:2,max:4}],0.8);
-    else addMineNode(KIT.makeRockNode(), x,z,'rock',45,[{id:'stone',p:1,min:1,max:3},{id:'coal',p:0.55,min:1,max:2},{id:'iron',p:0.3,min:1,max:1}],1.0);
+  // Place nodes ON THE WALKABLE RING ROAD around the camp (between the tower r=34 and the fence r=58.5),
+  // in CAMP-world coords, so they're reachable from round 1 (the old code scattered them in the sealed
+  // Minecraft zone at world-origin — unreachable). 16 nodes keeps draw calls down.
+  const N=16;
+  for(let i=0;i<N;i++){
+    const a=(i/N)*Math.PI*2 + 0.39;                 // offset so nothing sits on the south spawn hub
+    const rad=39 + (i%3)*4 + ((i*7)%5)*0.7;          // ~39..52, on the ring road
+    const x=CAMP_X+Math.cos(a)*rad, z=CAMP_Z+Math.sin(a)*rad;
+    if(i%2===0) addMineNode(KIT.makeRockNode(), x,z,'rock',45,[{id:'stone',p:1,min:1,max:3},{id:'coal',p:0.6,min:1,max:2},{id:'iron',p:0.32,min:1,max:1}],1.05);
+    else        addMineNode(KIT.makeTreeNode(), x,z,'tree',30,[{id:'wood',p:1,min:2,max:4}],0.9);
   }
 }
 function damageMineable(o,dmg){ if(!o.alive) return; o.hp-=dmg;
@@ -2436,6 +2451,25 @@ window.__perf=(n)=>{ // isolate JS sim cost (the only thing MY code controls) fr
 window.__mc={ INV, invCount, invAdd, invRemove, mcOpen, mcClose, mcEvalRecipe, mcCraft, slotClick, hotSelect,
   holdingBlock, holdingFood, placeHeldBlock, damagePlacedBlock, addPlacedBlock, blockAt, placedBlocks,
   mineables, damageMineable, eatHeld, supportCheck, get match(){ return mcMatch; } };
+// world-diagnostic hook (for debugging layout / spawn / perf)
+window.__diag=()=>{ const fwd=new THREE.Vector3(); camera.getWorldDirection(fwd);
+  const rc=new THREE.Raycaster(camera.position.clone(), fwd.clone(), 0.1, 8);
+  const hits=rc.intersectObjects(scene.children,true).filter(h=>h.object.visible);
+  const firstHit=hits[0]?{dist:+hits[0].distance.toFixed(2), name:hits[0].object.name||'(unnamed)', type:hits[0].object.type}:null;
+  return {
+    camp:[+CAMP_X.toFixed(1),+CAMP_Z.toFixed(1)], R_OUT, towerH:(typeof TOWER_H!=='undefined'?TOWER_H:null),
+    camPos:[+camera.position.x.toFixed(1),+camera.position.y.toFixed(1),+camera.position.z.toFixed(1)],
+    colliders: colliders.length,
+    colliderSample: colliders.slice(0,10).map(c=>({x:+c.x.toFixed(1),z:+c.z.toFixed(1),r:+(c.r||0).toFixed(1),gate:c.gate?(c.gate.open?'open':'closed'):false})),
+    mineables: (typeof mineables!=='undefined')? mineables.map(m=>({x:+m.x.toFixed(1),z:+m.z.toFixed(1),kind:m.kind})) : 'n/a',
+    drawCalls: renderer.info.render.calls, programs: renderer.info.programs?renderer.info.programs.length:null,
+    worldAnims: (typeof worldAnims!=='undefined')?worldAnims.length:null,
+    lookingAt: firstHit
+  }; };
+window.__spawnSample=()=>{ if(typeof pickSpawn!=='function') return 'n/a'; const s=[];
+  for(let i=0;i<16;i++){ const p=pickSpawn(); s.push({x:+p[0].toFixed(1),z:+p[1].toFixed(1),zone:p[3]||'?',
+    inWalkable: Math.hypot(p[0]-CAMP_X,p[1]-CAMP_Z) < R_OUT+2 }); } return s; };
+window.__teleport=(x,z)=>{ camera.position.x=CAMP_X+(x||0); camera.position.z=CAMP_Z+(z||0); };
 
 if(document.readyState==='complete'||document.readyState==='interactive') boot();
 else addEventListener('DOMContentLoaded', boot);

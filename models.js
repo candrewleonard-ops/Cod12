@@ -443,9 +443,9 @@ class Kit {
     const core=new THREE.Mesh(new THREE.SphereGeometry(0.5,18,18), this.glow(0xffb838,2.4)); g.add(core);
     const ring=new THREE.Mesh(new THREE.SphereGeometry(0.7,18,18), this.glow(0xff5a1e,1.6)); g.add(ring);
     const shards=[];
-    for (let i=0;i<10;i++){ const s=this.box(0.08,0.08,0.18, this.mat(0x201d16,0.9,0)); const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI; s.userData.dir=new THREE.Vector3(Math.sin(e)*Math.cos(a),Math.abs(Math.cos(e))+0.2,Math.sin(e)*Math.sin(a)); g.add(s); shards.push(s); }
-    const pl=new THREE.PointLight(0xff7a2a,0,6); g.add(pl);
-    g.userData.update=(t)=>{ const p=(t%2.2)/2.2; const sc=0.4+p*2.4; core.scale.setScalar(sc*0.7); ring.scale.setScalar(sc); core.material.emissiveIntensity=2.4*(1-p); ring.material.emissiveIntensity=1.6*(1-p); core.visible=ring.visible=p<0.96; pl.intensity=4*(1-p)*(p<0.96?1:0);
+    for (let i=0;i<8;i++){ const s=this.box(0.08,0.08,0.18, this.mat(0x201d16,0.9,0)); const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI; s.userData.dir=new THREE.Vector3(Math.sin(e)*Math.cos(a),Math.abs(Math.cos(e))+0.2,Math.sin(e)*Math.sin(a)); g.add(s); shards.push(s); }
+    // NOTE: no per-explosion PointLight — emissive core/ring is enough; per-FX lights tanked frame time
+    g.userData.update=(t)=>{ const p=(t%2.2)/2.2; const sc=0.4+p*2.4; core.scale.setScalar(sc*0.7); ring.scale.setScalar(sc); core.material.emissiveIntensity=2.4*(1-p); ring.material.emissiveIntensity=1.6*(1-p); core.visible=ring.visible=p<0.96;
       shards.forEach(s=>{ s.position.copy(s.userData.dir).multiplyScalar(p*2.4); s.scale.setScalar(Math.max(0.01,1-p)); }); };
     return g;
   }
@@ -599,7 +599,7 @@ class Kit {
     g.add(this.at(this.box(0.8,0.55,0.8,flesh),0,3.7,0));
     // pingas billboard face + solid backing
     g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(1.5,18,18),flesh),0,4.85,-0.35));
-    const face=new THREE.Mesh(new THREE.PlaneGeometry(3.8,3.8*(394/507)), new THREE.MeshBasicMaterial({ map:this.pingasTex(), transparent:true })); face.position.set(0,4.95,0.7); g.add(face);
+    const face=new THREE.Mesh(new THREE.PlaneGeometry(2.6,2.6*(394/507)), new THREE.MeshBasicMaterial({ map:this.pingasTex(), transparent:true })); face.position.set(0,4.95,0.7); g.add(face);
     g.userData.face=face;
     g.userData.update=(t)=>{ g.rotation.y=Math.sin(t*0.35)*0.1; face.position.y=4.85+Math.sin(t*1.1)*0.06; };
     return g; // ~6 units tall; scale up at placement for 10x player
@@ -786,21 +786,20 @@ class Kit {
       const torus=new THREE.Mesh(new THREE.TorusGeometry(0.18,0.06,8,14), i%2?m2:m); torus.rotation.y=i%2?Math.PI/2:0; link.add(torus); g.add(link); }
     return g;
   }
-  makeRockNode(){ // minable boulder → drops stone/coal/iron
+  makeRockNode(){ // minable boulder → drops stone/coal/iron (4 cubes + 1 ore fleck — kept light for perf)
     const g=new THREE.Group(); const r=this.mcMat('cobblestone'), r2=this.mat(0x70707a,0.98,0);
-    for(let i=0;i<7;i++){ const s=0.4+Math.random()*0.5; const b=this.box(s,s,s, Math.random()<0.5?r:r2);
-      b.position.set((Math.random()-0.5)*1.0,0.25+Math.random()*0.5,(Math.random()-0.5)*1.0); b.rotation.set(Math.random(),Math.random(),Math.random()); g.add(b); }
-    // a couple of ore flecks for readability
-    for(let i=0;i<3;i++) g.add(this.at(this.box(0.1,0.1,0.1,this.glow(0x16161a,0.3)),(Math.random()-0.5)*0.8,0.4+Math.random()*0.3,(Math.random()-0.5)*0.8));
+    const P=[[0,0.35,0,0.95],[0.45,0.28,0.2,0.6],[-0.35,0.3,-0.25,0.65],[0.1,0.72,-0.1,0.5]];
+    for(let i=0;i<P.length;i++){ const s=P[i][3]; const b=this.box(s,s,s, i%2?r2:r);
+      b.position.set(P[i][0],P[i][1],P[i][2]); b.rotation.set(0.4*i,0.7*i,0.2*i); g.add(b); }
+    g.add(this.at(this.box(0.12,0.12,0.12,this.glow(0x16161a,0.3)),0.15,0.5,0.2));
     g.userData.mcType='stone';
     return g;
   }
-  makeTreeNode(){ // small minable tree → drops wood (reuses the blocky-tree look, shorter)
+  makeTreeNode(){ // small minable tree → drops wood (2 trunk + plus-shaped canopy — light for perf)
     const g=new THREE.Group();
-    for(let i=0;i<3;i++) g.add(this.at(this.box(0.5,0.5,0.5,this.mcMat('wood')),0,0.25+i*0.5,0));
+    g.add(this.at(this.box(0.5,1.0,0.5,this.mcMat('wood')),0,0.5,0));
     const lv=this.mcMat('leaves');
-    for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++){ if(Math.abs(x)+Math.abs(z)>1.5)continue; g.add(this.at(this.box(0.5,0.5,0.5,lv),x*0.5,1.7,z*0.5)); }
-    g.add(this.at(this.box(0.5,0.5,0.5,lv),0,2.15,0));
+    for(const p of [[0,1.45,0],[0.5,1.35,0],[-0.5,1.35,0],[0,1.35,0.5],[0,1.35,-0.5]]) g.add(this.at(this.box(0.5,0.5,0.5,lv),p[0],p[1],p[2]));
     return g;
   }
   makeHousePrefab(){ // a clean walk-in plank house (doorway gap, window, roof)
