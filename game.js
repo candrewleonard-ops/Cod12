@@ -1463,6 +1463,27 @@ function maybeCrossDoor(e,nx,nz){
   if(e.zone==='outside' && (nz-CAMP_Z) < TOWER_H-0.2){ e.zone='inside';  e.baseY=0; }
   else if(e.zone==='inside' && (nz-CAMP_Z) > TOWER_H+0.2){ e.zone='outside'; e.baseY=0; }
 }
+// cheap "is this spot blocked?" test for path probing (world bound + tower body + prop colliders)
+function pathBlocked(x,z,rad,zone){
+  if(Math.abs(x)>WB-2 || Math.abs(z)>WB-2) return true;
+  if(zone!=='inside' && zone!=='roof'){
+    const lx=x-CAMP_X, lz=z-CAMP_Z;
+    if(Math.abs(lx)<TOWER_H+rad && Math.abs(lz)<TOWER_H+rad && !(doorOpen && Math.abs(lx)<3.5 && lz>0)) return true;
+  }
+  for(let i=0;i<colliders.length;i++){ const c=colliders[i]; if(c.gate && c.gate.open) continue;
+    const dx=x-c.x, dz=z-c.z, m=c.r+rad; if(dx*dx+dz*dz < m*m) return true; }
+  return false;
+}
+// SMOOTH obstacle avoidance — probe the desired heading first, then widening angles (committed
+// side first); take the first CLEAR heading. No straight↔veer oscillation → no zig-zag.
+const _steer=[0,0];
+function steerDir(e, ox, oz, dirx, dirz, rad, zone){
+  const base=Math.atan2(dirz,dirx), probe=2.8, s=e.side||1;
+  const offs=[0, 0.45*s, 0.45*-s, 0.9*s, 0.9*-s, 1.35*s, 1.35*-s, 1.8*s, 1.8*-s];
+  for(let i=0;i<offs.length;i++){ const a=base+offs[i], tx=ox+Math.cos(a)*probe, tz=oz+Math.sin(a)*probe;
+    if(!pathBlocked(tx,tz,rad,zone)){ if(offs[i]!==0) e.side=(offs[i]>0?1:-1); _steer[0]=Math.cos(a); _steer[1]=Math.sin(a); return _steer; } }
+  _steer[0]=dirx; _steer[1]=dirz; return _steer;   // fully boxed in → push straight (clamp slides us)
+}
 function updateEnemies(dt){
   const players=getPlayers(), et=clock.elapsedTime;
   for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
@@ -1473,23 +1494,15 @@ function updateEnemies(dt){
     e.grp.rotation.y = Math.atan2(pdx,pdz);              // always face the player
     if(pdist>1.4){
       const wp=routeWaypoint(e,tgt);
-      const wx=wp.x-e.grp.position.x, wz=wp.z-e.grp.position.z; const wdist=Math.hypot(wx,wz)||1;
-      let hx=wx/wdist, hz=wz/wdist;
-      if(e.stuckT>0.35){ const a=e.side*1.3, ca=Math.cos(a), sa=Math.sin(a);  // wall-follow: veer ~75°
-        const rx=hx*ca-hz*sa, rz=hx*sa+hz*ca; hx=rx; hz=rz; }
+      const wx=wp.x-e.grp.position.x, wz=wp.z-e.grp.position.z; const wd=Math.hypot(wx,wz)||1;
+      const st=steerDir(e, e.grp.position.x, e.grp.position.z, wx/wd, wz/wd, 0.55, e.zone);
       const sp=e.speed*dt;
-      const ox=e.grp.position.x, oz=e.grp.position.z;
-      const c=clampEnemy(ox+hx*sp, oz+hz*sp, 0.5, e.zone);
+      const c=clampEnemy(e.grp.position.x+st[0]*sp, e.grp.position.z+st[1]*sp, 0.5, e.zone);
       maybeCrossDoor(e, c.x, c.z);
-      // stuck bookkeeping: are we actually getting closer to the player?
-      if(pdist > e.lastDist-0.02){ e.stuckT+=dt; if(e.stuckT>1.4){ e.side=-e.side; e.stuckT=0.5; } }
-      else e.stuckT=0;
-      e.lastDist=pdist;
       e.grp.position.x=c.x; e.grp.position.z=c.z;
     } else {
       // melee — only if on roughly the same level as the player
       if(Math.abs(e.baseY-((tgt.eyeY||EYE)-EYE))<3){ e.atkCd-=dt; if(e.atkCd<=0){ e.atkCd=1.0; hurtPlayer(e.dmg||14); } }
-      e.stuckT=0;
     }
     e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
     if(e.anim) e.anim(et + i); // shamble (kit closure)
@@ -1500,13 +1513,8 @@ function updateEnemies(dt){
     const dx=tgt.x-boss.position.x, dz=tgt.z-boss.position.z, dist=Math.hypot(dx,dz);
     boss.rotation.y=Math.atan2(dx,dz);
     if(dist>2.2){
-      let hx=dx/dist, hz=dz/dist;
-      if((bd._stuckT||0)>0.35){ const a=(bd._side||1)*1.3, ca=Math.cos(a), sa=Math.sin(a);
-        const rx=hx*ca-hz*sa, rz=hx*sa+hz*ca; hx=rx; hz=rz; }
-      const sp=bd.speed*dt; const c=clampArena(boss.position.x+hx*sp, boss.position.z+hz*sp, 1.0, false);
-      if(dist > (bd._lastDist||1e9)-0.02){ bd._stuckT=(bd._stuckT||0)+dt; if(bd._stuckT>1.4){ bd._side=-(bd._side||1); bd._stuckT=0.5; } }
-      else bd._stuckT=0;
-      bd._lastDist=dist;
+      const st=steerDir(bd, boss.position.x, boss.position.z, dx/dist, dz/dist, 1.1, 'outside');
+      const sp=bd.speed*dt; const c=clampArena(boss.position.x+st[0]*sp, boss.position.z+st[1]*sp, 1.0, false);
       boss.position.x=c.x; boss.position.z=c.z;
     }
     else { bd.atkCd-=dt; if(bd.atkCd<=0){ bd.atkCd=1.3; hurtPlayer(34); } }
@@ -1781,7 +1789,12 @@ function bindInput(){
   document.addEventListener('keyup', e=>{ G.keys[e.key.toLowerCase()]=false; });
   document.addEventListener('mousedown', e=>{
     if(G.phase!=='play') return;
-    if(e.button===0) G.mouseDown=true;
+    if(e.button===0){ G.mouseDown=true;
+      // ☠ ADMIN SECRET: triple-click while standing at the Mug Rootbeer Meth machine → +100,000
+      if(nearInteract && nearInteract.perkId==='rootbeer'){ const now=clock.elapsedTime;
+        if(now-(G._rbT||0)>1.2) G._rbN=0; G._rbT=now; G._rbN=(G._rbN||0)+1;
+        if(G._rbN>=3){ G._rbN=0; addPoints(100000); AU.power(); toast('☠ ADMIN','+100,000 points','#ffd23a'); } }
+    }
     else if(e.button===2) G.rightMouseDown=true;
     e.preventDefault();
   });
@@ -1840,8 +1853,9 @@ function resetRun(){
 function startGame(){
   resetRun(); G.phase='play'; $('hud').classList.add('on');
   hideAllScreens(); AU.resume(); lockMouse();
+  G.minecraftMode=true; mcInitInventory(); mcBindOverlay();   // inventory + crafting available from round 1 (press E)
   G.intermission=clock.elapsedTime+2.0; updateRoundHUD();
-  toast('UNDEAD SIEGE','prepare yourself');
+  toast('UNDEAD SIEGE','prepare yourself · press E for crafting');
 }
 function pauseGame(){ if(G.phase!=='play') return; G.phase='pause'; showScreen('pause'); document.exitPointerLock&&document.exitPointerLock(); }
 function resumeGame(){ if(G.phase!=='pause') return; G.phase='play'; hideAllScreens(); lockMouse(); }
