@@ -289,20 +289,45 @@ function buildCompoundRoad(){
   const gx=MCX-MH+MGAP*1.34, gz=MCZ-MH;
   const px=(t)=>gx-Math.pow(t,1.7)*34, pz=(t)=>(gz+8)+(CAMP_Z-(gz+8))*t;   // curve to the camp
   const roadMat=new T.MeshStandardMaterial({color:0x5b5f63,roughness:0.95});
-  for(let i=0;i<30;i++){ const x1=px(i/30),z1=pz(i/30),x2=px((i+1)/30),z2=pz((i+1)/30), dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz);
-    const seg=new T.Mesh(new T.BoxGeometry(13,0.3,len+1.4), roadMat); seg.position.set((x1+x2)/2,0.12,(z1+z2)/2); seg.rotation.y=-Math.atan2(dx,dz); seg.receiveShadow=true; scene.add(seg); }
-  // ── round-25 obsidian nether-portal gate on the road (removed when the giga boss dies) ──
+  const rockMat=new T.MeshStandardMaterial({color:0x8d857a,roughness:1,metalness:0});
+  const N=30, HW=6.6;
+  for(let i=0;i<N;i++){ const x1=px(i/N),z1=pz(i/N),x2=px((i+1)/N),z2=pz((i+1)/N), dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz),ry=-Math.atan2(dx,dz);
+    const seg=new T.Mesh(new T.BoxGeometry(13,0.3,len+1.4), roadMat); seg.position.set((x1+x2)/2,0.16,(z1+z2)/2); seg.rotation.y=ry; seg.receiveShadow=true; scene.add(seg);
+    // ROAD BOUNDARY: rocky walls down BOTH edges so you can't leave the road — the portal is the only way through
+    const nx=dz/len, nz=-dx/len;
+    [-1,1].forEach(s=>{ const wx=(x1+x2)/2+nx*s*HW, wz=(z1+z2)/2+nz*s*HW, hh=3.4+Math.sin(i*1.7+s)*0.8;
+      const wseg=new T.Mesh(new T.BoxGeometry(1.4,hh,len+1.0), rockMat); wseg.position.set(wx,hh/2,wz); wseg.rotation.set((i%3-1)*0.02,ry,0); wseg.castShadow=wseg.receiveShadow=true; scene.add(wseg);
+      colliders.push({x:wx,z:wz,r:1.3}); }); }
+  // ── round-25 obsidian NETHER PORTAL (animated swirling-purple shader) — also the Sky-Room easter egg ──
   const TT=0.82, cx=px(TT), cz=pz(TT), dx=px(TT+0.012)-px(TT-0.012), dz=pz(TT+0.012)-pz(TT-0.012);
   const r25=new T.Group(); r25.position.set(cx,0,cz); r25.rotation.y=-Math.atan2(dx,dz);
-  const obs=KIT.mat(0x150a22,0.6,0.25), FW=13,FH=16,TH=2.4, midY=TH+FH/2;
+  const obs=KIT.mat(0x150a22,0.6,0.25), FW=13,FH=12,TH=3.0, midY=TH+FH/2;
   [-(FW/2+TH/2),(FW/2+TH/2)].forEach(x=> r25.add(KIT.at(KIT.box(TH,FH+TH*2,TH,obs),x,midY,0)));
   r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,TH/2,0)); r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,FH+TH*1.5,0));
-  const portal=new T.Mesh(new T.PlaneGeometry(FW,FH), new T.MeshBasicMaterial({color:0x8c2bd6,transparent:true,opacity:0.7,side:T.DoubleSide})); portal.position.set(0,midY,0); r25.add(portal);
-  const pl=new T.PointLight(0xb24bff,1.3,34); pl.position.set(0,midY,0); r25.add(pl);
+  [[-(FW/2+TH/2),TH/2],[(FW/2+TH/2),TH/2],[-(FW/2+TH/2),FH+TH*1.5],[(FW/2+TH/2),FH+TH*1.5]].forEach(c=> r25.add(KIT.at(KIT.box(TH*1.15,TH*1.15,TH*1.1,KIT.mat(0x241038,0.55,0.3)),c[0],c[1],0)));
+  const portalMat=new T.ShaderMaterial({ transparent:true, depthWrite:false, side:T.DoubleSide, blending:T.AdditiveBlending,
+    uniforms:{ t:{value:0} },
+    vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader:`varying vec2 vUv; uniform float t;
+      float h(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+      float n(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); float a=h(i),b=h(i+vec2(1,0)),c=h(i+vec2(0,1)),d=h(i+vec2(1,1)); return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }
+      void main(){ vec2 uv=vUv; float v=0.0;
+        v+=n(uv*4.0+vec2(0.0,t*0.5))*0.6;
+        v+=n(uv*9.0-vec2(t*0.32,t*0.12))*0.28;
+        v+=sin((uv.y*13.0+t*2.1)+sin(uv.x*7.0+t*1.3))*0.13;
+        v=0.32+0.72*v;
+        vec3 dark=vec3(0.13,0.02,0.24), mid=vec3(0.52,0.10,0.78), br=vec3(0.86,0.46,1.0);
+        vec3 col=mix(dark,mid,smoothstep(0.28,0.6,v)); col=mix(col,br,smoothstep(0.66,0.97,v));
+        float edge=smoothstep(0.0,0.12,uv.x)*smoothstep(0.0,0.12,1.0-uv.x)*smoothstep(0.0,0.08,uv.y)*smoothstep(0.0,0.08,1.0-uv.y);
+        gl_FragColor=vec4(col, 0.55+0.4*edge); }` });
+  const portal=new T.Mesh(new T.PlaneGeometry(FW,FH), portalMat); portal.position.set(0,midY,0); r25.add(portal);
+  const portalBack=new T.Mesh(new T.PlaneGeometry(FW,FH), portalMat); portalBack.position.set(0,midY,-0.05); portalBack.rotation.y=Math.PI; r25.add(portalBack);
+  const pl=new T.PointLight(0xb24bff,1.3,34); pl.position.set(0,midY,1.6); r25.add(pl);
+  const sk=KIT.makeSkullDrop(); sk.scale.setScalar(1.3); sk.position.set(0,midY,1.9); r25.add(sk);
   const tag=new T.Mesh(new T.PlaneGeometry(6,2.4), new T.MeshBasicMaterial({map:KIT.label('RD 25','#e0b0ff'),transparent:true})); tag.position.set(0,FH+TH*2+1.8,0); r25.add(tag);
-  KIT.shadow(r25); scene.add(r25); round25Gate={grp:r25, cleared:false};
+  KIT.shadow(r25); scene.add(r25); round25Gate={grp:r25, cleared:false, x:cx, z:cz};
   colliders.push({x:cx, z:cz, r:7, gate:{get open(){ return round25Gate.cleared; }}});  // solid until the giga boss dies
-  worldAnims.push((t)=>{ portal.material.opacity=0.55+Math.sin(t*3)*0.2; pl.intensity=1.0+Math.sin(t*3)*0.4; });
+  worldAnims.push((t)=>{ portalMat.uniforms.t.value=t; pl.intensity=1.0+Math.sin(t*3)*0.4; sk.rotation.y=t*1.2; });
 }
 
 // ════════ PIG MOUNT — buy from the camp vendor, press V to ride (+50% speed, keep your gun) ════════
