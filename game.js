@@ -1161,6 +1161,11 @@ function buildPlayerArms(){
   if(arms){ camera.remove(arms); }
   const w=G.weapons[G.cur];
   arms = KIT.makeArms(w.type, w.pap);
+  // akimbo / super Mauser: add a 2nd (left) and 3rd (center) gun to the viewmodel
+  if(w.type==='pistol' && w.akimbo){
+    const g2=KIT.makeWeapon('pistol', true); g2.scale.setScalar(0.70); g2.position.set(-0.30,-0.34,-0.66); g2.rotation.set(0.05,Math.PI,0); arms.add(g2);
+    if(w.superPaP){ const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.66); g3.position.set(-0.09,-0.28,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); }
+  }
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
   tagReloadParts(arms);                                    // capture the reload rig (mag/charge/pump/core + arms)
@@ -1221,7 +1226,7 @@ function fire(){
   const w=curW(); if(!w) return;
   const d=WDEF[w.type]; const now=clock.elapsedTime;
   if(w.reloading) return;
-  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.superUpgrade?1.3:1);
+  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.superUpgrade?1.3:1) * (w.akimboRate||1);
   if(now - w.lastShot < 1/rate) return;
   if(w.type==='axe'){ return; } // axe handled by charge system
   // Melee weapons (pickaxe / diamond pickaxe): no ammo, swing + ray hit, big point reward
@@ -1254,7 +1259,7 @@ function fire(){
 
   camera.getWorldDirection(_dir);
   const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
-  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (w.superUpgrade?2:1);
+  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (w.superUpgrade?2:1) * (w.superPaP?1.4:1);
 
   if(w.type==='wonder'){ spawnBolt(ox,oy,oz,_dir.x,_dir.y,_dir.z, d.dmg*dmgMul, d.aoe); return; }
 
@@ -1513,11 +1518,22 @@ function mysteryCrate(){
   return true;
 }
 function packAPunch(){
-  if(!G.powerOn) return false; const w=curW(); if(!w||w.pap) return false;
+  if(!G.powerOn) return false; const w=curW(); if(!w) return false;
+  // The Mauser cycles: none → Pack-a-Punch (AKIMBO) → SUPER PINGAS (triple). Other guns: single PaP.
+  if(w.type==='pistol'){
+    if(!w.pap){ if(!spend(5000)) return false; AU.power();
+      w.pap=true; w.akimbo=true; w.akimboRate=2.0; w.name='MAUSER ✦'; w.mag=18; w.reserve=180; w.ammo=18;
+      buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','akimbo Mausers · hold to spam','#35d6ff'); return true; }
+    if(!w.superPaP){ if(!spend(5000)) return false; AU.power();
+      w.superPaP=true; w.akimboRate=2.7; w.name='SUPER ✦ PINGAS'; w.mag=36; w.reserve=360; w.ammo=36;
+      buildPlayerArms(); updateAmmoHUD(); toast('SUPER PACK·A·PINGAS','triple Mauser · 36 rounds · max dmg','#ff48c0'); return true; }
+    return false;   // already super
+  }
+  if(w.pap) return false;
   if(!spend(5000)) return false; AU.power();
   w.pap=true; w.name=WDEF[w.type].name+' +';
-  w.mag=Math.round(WDEF[w.type].mag*1.5);                       // bigger magazine…
-  w.reserve=Math.round(WDEF[w.type].reserve*1.5); w.ammo=w.mag; // …and a full, larger reserve
+  w.mag=Math.round(WDEF[w.type].mag*1.5);
+  w.reserve=Math.round(WDEF[w.type].reserve*1.5); w.ammo=w.mag;
   buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','2.2× dmg · bigger mag','#35d6ff'); return true;
 }
 /* ── Minecraft melee + super upgrades ───────────────────────────────── */
@@ -2616,7 +2632,7 @@ function simStep(dt){
   const _aid=hotActiveId(), _ad=itemDef(_aid), _holdGun=!(_ad)|| _ad.kind==='gun';
   if(w && w.type==='axe'){ updateAxe(dt, G.mouseDown); }
   else if(G.mouseDown){
-    if(_holdGun){ if(w && (WDEF[w.type].auto || canSemi())) fire(); }   // gun / pickaxe in hand
+    if(_holdGun){ if(w && (WDEF[w.type].auto || w.akimbo || canSemi())) fire(); }   // gun / pickaxe / akimbo in hand
     else { tryMine(28, 3.2); }                                          // block/food in hand → left-click mines by hand
   }
   updatePlayer(dt);
