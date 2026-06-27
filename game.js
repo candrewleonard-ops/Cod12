@@ -2292,7 +2292,8 @@ function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true; const ov=$('mc
     if(s.dataset.main!=null) return ['main',+s.dataset.main]; if(s.dataset.hot!=null) return ['hot',+s.dataset.hot]; if(s.dataset.craft!=null) return ['craft',+s.dataset.craft]; return null; };
   ov.addEventListener('click', e=>{ if(e.target.closest('#mcCraftResult')){ mcCraft(); return; }
     const rr=e.target.closest('.recipeRow'); if(rr){ mcAutofill(+rr.dataset.ri); return; }
-    const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],false); });
+    const z=zoneOf(e.target); if(z){ slotClick(z[0],z[1],false); return; }
+    if(e.target===ov && INV.held){ dropItemToGround(INV.held.id,INV.held.n); INV.held=null; updateHeldCursor(); renderInv(); renderHotbar(); } });  // click the backdrop while holding → drop to ground
   ov.addEventListener('contextmenu', e=>{ e.preventDefault(); const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],true); });
   ov.addEventListener('mousemove', e=>{ updateHeldCursor(e.clientX+14,e.clientY+14); });
   const btn=$('mcCraftBtn'); if(btn) btn.addEventListener('click', mcCraft); }
@@ -2746,6 +2747,33 @@ function loop(){
     }
   }
 }
+/* ── DROP-TO-GROUND: drag an item onto the backdrop → a spinning world pickup (despawns ~15s) ── */
+const groundDrops=[];
+function dropItemToGround(id,n){
+  if(!id||!n) return;
+  const dir=new T.Vector3(); camera.getWorldDirection(dir); dir.y=0; if(dir.lengthSq()<1e-4) dir.set(0,0,-1); dir.normalize();
+  const px=camera.position.x+dir.x*1.8, pz=camera.position.z+dir.z*1.8;
+  const gy=((typeof groundHeightAt==='function')?groundHeightAt(px,pz,G.footY):0)+0.45;
+  const grp=new T.Group(); const d=itemDef(id);
+  let mesh = (d&&d.kind!=='gun') ? KIT.makeHeldItem(isPlaceable(id)?id:null) : null;
+  if(mesh){ mesh.position.set(0,0,0); mesh.rotation.set(0,0,0); mesh.scale.setScalar(0.9); }   // undo the first-person view offset
+  else mesh=new T.Mesh(new T.BoxGeometry(0.38,0.38,0.38), KIT.glow(0x9fd0ff,0.5));
+  grp.add(mesh); grp.position.set(px,gy,pz); buildRoot.add(grp);
+  groundDrops.push({grp,x:px,z:pz,id,n,t0:clock.elapsedTime,armed:false});
+  toast('DROPPED '+itemName(id), n>1?'×'+n:'', '#9fd0ff');
+}
+function updateGroundDrops(dt){
+  const et=clock.elapsedTime;
+  for(let i=groundDrops.length-1;i>=0;i--){ const g=groundDrops[i];
+    g.grp.rotation.y+=dt*2.2; g.grp.position.y=g.grp.position.y; // spin in place
+    const dist=Math.hypot(camera.position.x-g.x, camera.position.z-g.z);
+    if(!g.armed){ if(dist>2.4) g.armed=true; }                  // arm once the player steps away (no instant re-grab)
+    else if(dist<2.0){ const left=invAdd(g.id,g.n);
+      if(left<=0){ buildRoot.remove(g.grp); groundDrops.splice(i,1); AU&&AU.buy&&AU.buy(); toast('PICKED UP '+itemName(g.id),'','#7be88a'); continue; }
+      else g.n=left; }
+    if(et-g.t0>15){ buildRoot.remove(g.grp); groundDrops.splice(i,1); }   // despawn
+  }
+}
 function simStep(dt){
   // input → fire / mine
   const w=curW();
@@ -2761,6 +2789,7 @@ function simStep(dt){
   updateBolts(dt);
   updateNades(dt);
   updateDrops(dt);
+  updateGroundDrops(dt);
   updateOre(dt);
   updateMineables(dt);
   { const et=clock.elapsedTime; for(let i=0;i<worldAnims.length;i++) worldAnims[i](et); }  // compound props
@@ -2904,6 +2933,7 @@ window.__spawnSample=()=>{ if(typeof pickSpawn!=='function') return 'n/a'; const
 window.__teleport=(x,z)=>{ camera.position.x=CAMP_X+(x||0); camera.position.z=CAMP_Z+(z||0); };
 window.__casino={ open:()=>openCasino(), close:()=>closeCasino(), plinko:()=>plinkoDrop(), scratchBuy:()=>scratchBuy(), scratchReveal:(i)=>scratchReveal(i), tab:(n)=>casTab(n) };
 window.__market={ open:()=>openMarket(), close:()=>closeMarket(), tab:(n)=>mkTab(n), btcBuy:()=>btcBuy(), btcSell:()=>btcSell(), price:()=>_btcPrice };
+window.__groundDrops=()=>groundDrops;
 window.__enchant={ open:()=>openEnchant(), close:()=>closeEnchant(), list:()=>ENCHANTS };
 
 if(document.readyState==='complete'||document.readyState==='interactive') boot();
