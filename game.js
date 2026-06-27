@@ -76,7 +76,7 @@ window.__G = G;
 /* ════════════════════ weapon definitions ════════════════════ */
 // dmg is per-hit; fireRate in shots/sec; auto = hold to fire; pellets/spread for shotgun.
 const WDEF = {
-  pistol:  { name:'M1911',        mag:8,  reserve:64,  rate:6,  dmg:42,  auto:false, reload:1.3, range:90, kind:'ballistic' },
+  pistol:  { name:'MAUSER',        mag:8,  reserve:64,  rate:6,  dmg:42,  auto:false, reload:1.3, range:90, kind:'ballistic' },
   pickaxe: { name:'PICKAXE',         mag:1, reserve:0, rate:2.2, dmg:65,  auto:true, reload:0, range:4.2, kind:'melee', melee:true },
   diapick: { name:'DIAMOND PICKAXE', mag:1, reserve:0, rate:3.4, dmg:150, auto:true, reload:0, range:4.8, kind:'melee', melee:true },
   smg:     { name:'MP-40',        mag:32, reserve:240, rate:13, dmg:26,  auto:true,  reload:1.7, range:80, kind:'ballistic' },
@@ -224,7 +224,6 @@ function buildWorld(){
 
   // ════════ MINECRAFT COMPOUND + road + gates (world-anchored) ════════
   buildCompound();
-  buildSkyRoom();                                      // hidden easter-egg room far up in the sky
 }
 
 // The walled Minecraft compound: rocky walls (south gap), cave, village, giant tree,
@@ -273,6 +272,20 @@ function buildCompound(){
     const r=new T.Mesh(rockGeo,rkMat); r.position.set(rx,1.2,rz); r.rotation.y=i; r.castShadow=r.receiveShadow=true; scene.add(r); }
   buildMegaGate();
   buildCompoundRoad();
+  // ── SUPER PACK-A-PINGAS — moved behind the $100k gate; F to super-upgrade your held gun ──
+  { const sx=8, sz=-14;   // just inside the compound past the mega-gate gap (world coords)
+    const sm=new T.Group(); sm.position.set(sx,0,sz); sm.rotation.y=Math.PI; scene.add(sm);
+    sm.add(KIT.at(KIT.box(3,4.6,1.7,KIT.mat(0x140a20,0.5,0.35)),0,2.3,0));
+    sm.add(KIT.at(KIT.box(3.25,0.5,1.85,KIT.mat(0xd8a93a,0.4,0.6)),0,4.7,0));
+    sm.add(KIT.at(KIT.box(3.25,0.4,1.85,KIT.mat(0xd8a93a,0.4,0.6)),0,0.25,0));
+    sm.add(KIT.at(KIT.box(2.5,1.8,0.25,KIT.glow(0xffd24a,0.5)),0,3.0,0.78));
+    [-1.5,1.5].forEach(xx=> sm.add(KIT.at(KIT.box(0.12,4.4,0.12,KIT.glow(0xffd24a,0.7)),xx,2.4,0.86)));
+    const lbl=new T.Mesh(new T.PlaneGeometry(2.7,0.9), new T.MeshBasicMaterial({map:KIT.labelLines(['SUPER','PACK·A·PINGAS'],'#ffd24a'),transparent:true})); lbl.position.set(0,4.2,0.95); sm.add(lbl);
+    KIT.shadow(sm);
+    const spot=new T.SpotLight(0xffd24a,1.2,40,0.7,0.5); spot.position.set(sx,16,sz); spot.target.position.set(sx,3,sz); scene.add(spot); scene.add(spot.target);
+    addInteractable({ x:sx, z:sz, radius:3.6, collide:1.3, type:'superpingas',
+      label:()=>{ const w=curW(); if(!w) return null; if(w.superUpgrade) return {key:'F', txt:'Already Super-Pingas', cost:0, cant:true}; return {key:'F', txt:'SUPER Pack-a-Pingas', cost:0}; },
+      run:()=>{ const w=curW(); if(!w||w.superUpgrade) return false; applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } }); }
 }
 // $100,000 mega-gate barricade (same plank style as the buy-gates), in the south wall gap facing the camp
 function buildMegaGate(){
@@ -304,36 +317,8 @@ function buildCompoundRoad(){
     [-1,1].forEach(s=>{ const wx=(x1+x2)/2+nx*s*HW, wz=(z1+z2)/2+nz*s*HW, hh=3.4+Math.sin(i*1.7+s)*0.8;
       const wseg=new T.Mesh(new T.BoxGeometry(1.4,hh,len+1.0), rockMat); wseg.position.set(wx,hh/2,wz); wseg.rotation.set((i%3-1)*0.02,ry,0); wseg.castShadow=wseg.receiveShadow=true; scene.add(wseg);
       colliders.push({x:wx,z:wz,r:1.3}); }); }
-  // ── round-25 obsidian NETHER PORTAL (animated swirling-purple shader) — also the Sky-Room easter egg ──
-  const TT=0.82, cx=px(TT), cz=pz(TT), dx=px(TT+0.012)-px(TT-0.012), dz=pz(TT+0.012)-pz(TT-0.012);
-  const r25=new T.Group(); r25.position.set(cx,0,cz); r25.rotation.y=-Math.atan2(dx,dz);
-  const obs=KIT.mat(0x150a22,0.6,0.25), FW=13,FH=12,TH=3.0, midY=TH+FH/2;
-  [-(FW/2+TH/2),(FW/2+TH/2)].forEach(x=> r25.add(KIT.at(KIT.box(TH,FH+TH*2,TH,obs),x,midY,0)));
-  r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,TH/2,0)); r25.add(KIT.at(KIT.box(FW,TH,TH,obs),0,FH+TH*1.5,0));
-  [[-(FW/2+TH/2),TH/2],[(FW/2+TH/2),TH/2],[-(FW/2+TH/2),FH+TH*1.5],[(FW/2+TH/2),FH+TH*1.5]].forEach(c=> r25.add(KIT.at(KIT.box(TH*1.15,TH*1.15,TH*1.1,KIT.mat(0x241038,0.55,0.3)),c[0],c[1],0)));
-  const portalMat=new T.ShaderMaterial({ transparent:true, depthWrite:false, side:T.DoubleSide, blending:T.AdditiveBlending,
-    uniforms:{ t:{value:0} },
-    vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-    fragmentShader:`varying vec2 vUv; uniform float t;
-      float h(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
-      float n(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); float a=h(i),b=h(i+vec2(1,0)),c=h(i+vec2(0,1)),d=h(i+vec2(1,1)); return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }
-      void main(){ vec2 uv=vUv; float v=0.0;
-        v+=n(uv*4.0+vec2(0.0,t*0.5))*0.6;
-        v+=n(uv*9.0-vec2(t*0.32,t*0.12))*0.28;
-        v+=sin((uv.y*13.0+t*2.1)+sin(uv.x*7.0+t*1.3))*0.13;
-        v=0.32+0.72*v;
-        vec3 dark=vec3(0.13,0.02,0.24), mid=vec3(0.52,0.10,0.78), br=vec3(0.86,0.46,1.0);
-        vec3 col=mix(dark,mid,smoothstep(0.28,0.6,v)); col=mix(col,br,smoothstep(0.66,0.97,v));
-        float edge=smoothstep(0.0,0.12,uv.x)*smoothstep(0.0,0.12,1.0-uv.x)*smoothstep(0.0,0.08,uv.y)*smoothstep(0.0,0.08,1.0-uv.y);
-        gl_FragColor=vec4(col, 0.55+0.4*edge); }` });
-  const portal=new T.Mesh(new T.PlaneGeometry(FW,FH), portalMat); portal.position.set(0,midY,0); r25.add(portal);
-  const portalBack=new T.Mesh(new T.PlaneGeometry(FW,FH), portalMat); portalBack.position.set(0,midY,-0.05); portalBack.rotation.y=Math.PI; r25.add(portalBack);
-  const pl=new T.PointLight(0xb24bff,1.3,34); pl.position.set(0,midY,1.6); r25.add(pl);
-  const sk=KIT.makeSkullDrop(); sk.scale.setScalar(1.3); sk.position.set(0,midY,1.9); r25.add(sk);
-  const tag=new T.Mesh(new T.PlaneGeometry(6,2.4), new T.MeshBasicMaterial({map:KIT.label('RD 25','#e0b0ff'),transparent:true})); tag.position.set(0,FH+TH*2+1.8,0); r25.add(tag);
-  KIT.shadow(r25); scene.add(r25); round25Gate={grp:r25, cleared:false, x:cx, z:cz};
-  colliders.push({x:cx, z:cz, r:7, gate:{get open(){ return round25Gate.cleared; }}});  // solid until the giga boss dies
-  worldAnims.push((t)=>{ portalMat.uniforms.t.value=t; pl.intensity=1.0+Math.sin(t*3)*0.4; sk.rotation.y=t*1.2; });
+  // (nether portal + round-25 gate removed by request — the road stays open)
+  round25Gate=null;
 }
 
 // ════════ PIG MOUNT — buy from the camp vendor, press V to ride (+50% speed, keep your gun) ════════
@@ -860,9 +845,9 @@ function buildStations(){
   const wallSpec=[ [sx+11,sz-4,'smg',1000], [sx-12,sz+6,'shotgun',1500] ];
   wallSpec.forEach(([x,z,wt,cost])=> addWallBuy(x,z,wt,cost));
 
-  // GATES (5 rising-price paywalls) gating outward stations
+  // GATES (5 rising-price paywalls) — opened IN ORDER around the ring; buy them all to clear the loop
   const gateDefs=[ [126,750],[186,1500],[246,2000],[306,2500],[6,3000] ];
-  const gates=gateDefs.map(([deg,price])=> addGate(deg,price));
+  const gates=gateDefs.map(([deg,price],i)=> addGate(deg,price,i)); ringGates=gates;
 
   // SPAWN POINTS — fixed ring of zombie origins. Start: the southern hub arc is open;
   // opening a gate unlocks the spawn points in that region (never affects live zombies).
@@ -989,20 +974,31 @@ function addWallBuy(x,z,wtype,cost){
     run:()=> buyWall(wtype,cost), anim:g.userData.update });
 }
 
-function addGate(deg,price){
-  const [x,z]=pos(deg); const ry=(deg-90)*Math.PI/180;
-  const g=new T.Group(); const planks=[];
-  [-2.6,2.6].forEach(px=> g.add(KIT.at(KIT.box(0.3,3.8,0.3,KIT.mat(0x2c2014,0.9,0)),px,1.9,0)));
-  for(let i=0;i<5;i++){ const p=KIT.box(5.4,0.34,0.22,KIT.mat(0x4a3525,0.85,0)); p.position.set(0,0.7+i*0.66,0); p.rotation.z=(i%2?1:-1)*0.04; g.add(p);
-    planks.push({mesh:p, cy:p.position.y, oy:p.position.y+4.2+i*0.46, cr:p.rotation.z, or:(i%2?1:-1)*1.2}); }
-  const tag=new T.Mesh(new T.PlaneGeometry(1.3,0.46), new T.MeshBasicMaterial({map:KIT.label(String(price),'#ffe9a0'),transparent:true})); tag.position.set(0,4.0,0.1); g.add(tag);
-  g.position.set(x,0,z); g.rotation.y=ry;
-  const gate=addInteractable({group:g, x, z, radius:3.4, type:'gate', cost:price, open:false, planks, anim:0, deg,
-    label:()=> gate.open?null:{key:'F', txt:'Clear Barricade', cost:price},
-    run:()=>{ if(gate.open) return false; if(!spend(price)) return false; gate.open=true; gate.anim=0.0001; AU.buy();
-      unlockSpawnsNear(deg); toast('PATH CLEARED','new spawn ground opened'); return true; } });
-  // physical block so the player can't walk through until it's cleared (removed on open)
-  colliders.push({x:campWX(x), z:campWZ(z), r:3.0, gate});
+let ringGates=[];                                   // the ring barricades, in buy order
+function gatePrevOpen(order){ return order<=0 || (ringGates[order-1] && ringGates[order-1].open); }
+function checkAllGates(){ if(ringGates.length && ringGates.every(g=>g.open)) toast('RING CLEARED','every barricade is open','#74e69a'); }
+function addGate(deg,price,order){
+  // Full-width barricade that SPANS the ring road (r≈43..61), like the kit — no walking around it.
+  const rad=deg*Math.PI/180, ZR=52, W=18;
+  const x=Math.cos(rad)*ZR, z=Math.sin(rad)*ZR;
+  const g=new T.Group(); g.position.set(x,0,z); g.rotation.y=-rad;     // local +X → radial → planks span the road
+  const postM=KIT.mat(0x241a10,0.95,0), plankM=KIT.mat(0x4a3525,0.85,0); const planks=[];
+  [-W/2,W/2].forEach(pxx=> g.add(KIT.at(KIT.box(0.7,4.8,0.8,postM), pxx,2.4,0)));   // end posts at the road edges
+  g.add(KIT.at(KIT.box(W,0.5,0.7,postM),0,4.7,0));                                  // top beam
+  for(let i=0;i<6;i++){ const p=KIT.box(W,0.42,0.4,plankM); p.position.set(0,0.55+i*0.66,0); p.rotation.z=(i%2?1:-1)*0.02; g.add(p);
+    planks.push({mesh:p, cy:p.position.y, oy:p.position.y+5.5+i*0.4, cr:p.rotation.z, or:(i%2?1:-1)*1.2}); }
+  [-1,1].forEach(s=>{ const br=KIT.box(W*0.94,0.32,0.3,KIT.mat(0x3a2a1b,0.9,0)); br.position.set(0,2.1,0.07); br.rotation.z=s*0.32; g.add(br); }); // X-braces
+  const tag=new T.Mesh(new T.PlaneGeometry(6,1.9), new T.MeshBasicMaterial({map:KIT.label('◈ '+price,'#ffe9a0'),transparent:true})); tag.position.set(0,5.7,0); g.add(tag);
+  const gate=addInteractable({group:g, x, z, radius:5, type:'gate', cost:price, open:false, planks, anim:0, deg, order,
+    label:()=>{ if(gate.open) return null;
+      if(!gatePrevOpen(order)) return {key:'F', txt:'Clear the earlier barricade first', cost:0, cant:true};
+      return {key:'F', txt:'Clear Barricade', cost:price}; },
+    run:()=>{ if(gate.open) return false;
+      if(!gatePrevOpen(order)){ toast('LOCKED','open the barricades in order','#ffae3a'); return false; }
+      if(!spend(price)) return false; gate.open=true; gate.anim=0.0001; AU.buy();
+      unlockSpawnsNear(deg); toast('PATH CLEARED','new ground opened'); checkAllGates(); return true; } });
+  // FULL-ROAD collision: a line of colliders across the road at this angle, all sharing the gate ref
+  for(let r=43; r<=61; r+=3){ colliders.push({x:campWX(Math.cos(rad)*r), z:campWZ(Math.sin(rad)*r), r:2.4, gate}); }
   return gate;
 }
 
@@ -2012,7 +2008,7 @@ const MC_ITEMS = {
   // food
   bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
   // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
-  pistol:{ name:'M1911', kind:'gun', stack:1, place:false, desc:'Starter sidearm.' },
+  pistol:{ name:'MAUSER', kind:'gun', stack:1, place:false, desc:'C96 broomhandle Mauser — your starter sidearm.' },
   pickaxe:{ name:'PICKAXE', kind:'gun', stack:1, place:false, desc:'Melee tool — mines blocks & swings at the undead (130 pts/kill).' },
   diapick:{ name:'DIAMOND PICKAXE', kind:'gun', stack:1, place:false, desc:'Upgraded pickaxe — big melee + faster mining.' },
   smg:{ name:'MP-40', kind:'gun', stack:1, place:false, desc:'Wall-buy SMG.' },
@@ -2343,7 +2339,9 @@ function mcUnlock(){ /* build mode is available from round 1; kept for the giga-
   toast('MINECRAFT MODE','press E for inventory + crafting','#5a9e3a'); }
 
 
+function give1M(){ addPoints(1000000); if(AU&&AU.power)AU.power(); toast('+1,000,000','cheat points','#ffd24a'); }
 function bindInput(){
+  { const gb=$('give1m'); if(gb) gb.addEventListener('click', ()=>{ give1M(); if(G.phase==='play') lockMouse(); }); }
   document.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); G.keys[k]=true;
     if(k==='e' && G.minecraftMode && (G.phase==='play'||G.phase==='inv')){ mcToggle(); return; }
     if(G.phase!=='play') return;
@@ -2351,6 +2349,7 @@ function bindInput(){
     if(k==='g') throwGrenade();
     if(k==='v') toggleMount();
     if(k==='b') toggleDrive();
+    if(k==='p') give1M();
     if(k==='f') doInteract();
     if(k==='1') hotSelect(0);
     if(k==='2') hotSelect(1);

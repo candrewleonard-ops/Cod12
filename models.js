@@ -170,9 +170,32 @@ class Kit {
     const dark=this.mat(0x101214,0.6,0.5);
     const wood=this.mat(0x3a2a1b,0.8,0);
     if (type==='pistol') {
-      g.add(this.box(0.11,0.18,0.52, metal));
-      const grip=this.box(0.1,0.27,0.15, dark); grip.position.set(0,-0.2,-0.17); grip.rotation.x=-0.26; g.add(grip);
-      g.add(this.at(this.cyl(0.03,0.03,0.16, metal,'z'), 0,0.02,0.32));
+      // ── C96 "BROOMHANDLE" MAUSER — the starter pistol (ported from the kit) ──
+      const U=g.userData;
+      const blued=this.mat(0x24272c,0.46,0.62), steelHi=this.mat(0x3c4148,0.34,0.8), wood2=this.mat(0x6a4524,0.6,0.05), woodHi=this.mat(0x835c34,0.52,0.05);
+      const seg=(rt,rb,h,m,ax,sg=28)=>{ const me=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,sg), m); if(ax==='z') me.rotation.x=Math.PI/2; if(ax==='x') me.rotation.z=Math.PI/2; return me; };
+      const recv=this.box(0.1,0.15,0.62, blued); recv.position.set(0,0.05,0.07); g.add(recv); U.slide=recv;
+      g.add(this.at(seg(0.052,0.052,0.62, blued,'z'), 0,0.125,0.07));
+      g.add(this.at(this.box(0.104,0.05,0.62, steelHi), 0,0.012,0.07));
+      g.add(this.at(seg(0.042,0.042,0.18, steelHi,'z'), 0,0.108,-0.16));
+      g.add(this.at(seg(0.047,0.047,0.035, blued,'z'), 0,0.108,-0.25));
+      { const ham=new THREE.Mesh(new THREE.TorusGeometry(0.036,0.013,10,20), steelHi); ham.position.set(0,0.12,-0.3); g.add(ham); }
+      g.add(this.at(this.box(0.07,0.035,0.09, blued), 0,0.155,-0.04));
+      g.add(this.at(this.box(0.062,0.05,0.018, steelHi), 0,0.182,-0.01));
+      g.add(this.at(this.box(0.02,0.045,0.028, steelHi), 0,0.165,0.32));
+      g.add(this.at(seg(0.046,0.046,0.13, blued,'z'), 0,0.085,0.3));
+      g.add(this.at(seg(0.03,0.028,0.5, blued,'z'), 0,0.085,0.56));
+      g.add(this.at(seg(0.035,0.03,0.045, steelHi,'z'), 0,0.085,0.8));
+      U.muzzle=new THREE.Vector3(0,0.085,0.83);
+      g.add(this.at(this.box(0.086,0.28,0.2, blued), 0,-0.16,-0.02));
+      g.add(this.at(this.box(0.094,0.06,0.21, steelHi), 0,-0.03,-0.02));
+      { const guard=new THREE.Mesh(new THREE.TorusGeometry(0.062,0.011,8,18,Math.PI), blued); guard.rotation.y=Math.PI/2; guard.position.set(0,-0.115,-0.19); g.add(guard); }
+      g.add(this.at(this.box(0.02,0.058,0.02, steelHi), 0,-0.1,-0.19));
+      { const gripG=new THREE.Group(); gripG.position.set(0,-0.215,-0.35); gripG.rotation.x=0.32; g.add(gripG);
+        gripG.add(new THREE.Mesh(new THREE.CylinderGeometry(0.086,0.072,0.3,28), wood2));
+        gripG.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.088,22,16), wood2), 0,-0.16,0));
+        [0.07,0.0,-0.07].forEach(yy=>{ const rg=new THREE.Mesh(new THREE.TorusGeometry(0.083,0.006,8,26), woodHi); rg.rotation.x=Math.PI/2; rg.position.y=yy; gripG.add(rg); });
+        gripG.add(this.at(new THREE.Mesh(new THREE.TorusGeometry(0.02,0.006,8,16), steelHi), 0,-0.2,0)); }
     } else if (type==='smg') {
       g.add(this.box(0.12,0.17,0.72, metal));
       const grip=this.box(0.1,0.25,0.14, dark); grip.position.set(0,-0.19,-0.06); grip.rotation.x=-0.2; g.add(grip);

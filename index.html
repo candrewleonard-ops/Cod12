@@ -177,6 +177,10 @@
   #scope .scopeV{position:absolute; left:50%; top:8%; bottom:8%; width:1px; background:rgba(0,0,0,0.7); transform:translateX(-0.5px)}
   #scope .scopeH{position:absolute; top:50%; left:8%; right:8%; height:1px; background:rgba(0,0,0,0.7); transform:translateY(-0.5px)}
   #scope .scopeDot{position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px 0 0 -2.5px; border-radius:50%; background:#ff3b3b; box-shadow:0 0 6px #ff3b3b}
+  #give1m{position:fixed; left:12px; top:50%; transform:translateY(-50%); z-index:9999; pointer-events:auto; cursor:pointer;
+    padding:8px 12px; font-family:inherit; font-weight:700; font-size:13px; letter-spacing:1px; color:#0a0d12;
+    background:linear-gradient(180deg,#ffe07a,#f0b020); border:2px solid #fff0b8; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  #give1m:hover{background:linear-gradient(180deg,#fff0a8,#ffc83a)} #give1m:active{transform:translateY(-50%) scale(.95)}
   .mcBlk{position:absolute; inset:5px; border-radius:1px; box-shadow:inset -4px -4px 0 rgba(0,0,0,.35), inset 4px 4px 0 rgba(255,255,255,.12)}
   .mcBlk[data-t="cobblestone"]{background:#8a8a8f} .mcBlk[data-t="wood"]{background:#6b4a28} .mcBlk[data-t="plank"]{background:#9c7a48}
   .mcBlk[data-t="coal"]{background:#8a8a8f; background-image:radial-gradient(#16161a 26%,transparent 27%); background-size:14px 14px; background-position:2px 3px}
@@ -293,6 +297,8 @@
     <!-- sniper scope overlay (shown at full sniper zoom) -->
     <div id="scope" class="hidden"><div class="scopeV"></div><div class="scopeH"></div><div class="scopeDot"></div></div>
   </div>
+  <!-- cheat: +1,000,000 points (click, or press P in-game) -->
+  <button id="give1m" title="Add 1,000,000 points (or press P)">+1M ◈</button>
 
   <!-- LOADING -->
   <div id="loading" class="screen">
