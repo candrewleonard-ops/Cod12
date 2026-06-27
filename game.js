@@ -247,12 +247,21 @@ function buildCompound(){
   if(giantTree.userData.update) worldAnims.push(giantTree.userData.update); colliders.push({x:56,z:56,r:6.5});
   // ── villagers (big chungus) ──
   [[50,48],[60,52],[52,62]].forEach(p=>{ const v=KIT.makeChungus(); v.scale.setScalar(0.8); v.position.set(p[0],0,p[1]); KIT.shadow(v); scene.add(v); if(v.userData.update) worldAnims.push(v.userData.update); });
-  // ── scattered blocky trees + rocks (count kept modest to bound draw calls) ──
-  for(let i=0;i<26;i++){ const t=KIT.makeBlockyTree(); const a=i*2.39, rr=20+((i*53)%60);
-    const tx=MCX+Math.cos(a)*rr*0.9, tz=MCZ+Math.sin(a)*rr*0.9; t.position.set(tx,0,tz); t.scale.setScalar(0.8+((i*7)%5)/6); KIT.shadow(t); scene.add(t); }
+  // ── GIANT DOUBLE PYRAMID on steel supports (kit landmark at 12,80; walk under it) ──
+  const pyr=KIT.makePyramid(22,26); pyr.position.set(12,0,80); KIT.shadow(pyr); scene.add(pyr);
+  if(pyr.userData.update) worldAnims.push(pyr.userData.update);
+  [[34,80],[-10,80],[12,102],[12,58]].forEach(c=> colliders.push({x:c[0],z:c[1],r:2.4}));   // 4 support legs only
+  // ── fancier village buildings: bank (96,28) + shop (28,16) (the modern estate goes on the giant tree in a later phase) ──
+  const bank=KIT.makeVillageHouse('bank'); bank.position.set(96,0,28); bank.rotation.y=-0.9; KIT.shadow(bank); scene.add(bank); if(bank.userData.update) worldAnims.push(bank.userData.update); colliders.push({x:96,z:28,r:7});
+  const shop=KIT.makeVillageHouse('shop'); shop.position.set(28,0,16); shop.rotation.y=0.5; KIT.shadow(shop); scene.add(shop); if(shop.userData.update) worldAnims.push(shop.userData.update); colliders.push({x:28,z:16,r:7});
+  // ── scattered blocky trees + rocks (skip the structure footprints, like the kit's clearZones) ──
+  const clearZones=[[12,80,44],[96,28,24],[28,16,24],[56,56,12],[80,90,16]];
+  const blockedMC=(x,z)=> clearZones.some(c=> (x-c[0])*(x-c[0])+(z-c[1])*(z-c[1]) < c[2]*c[2]);
+  for(let i=0;i<30;i++){ const a=i*2.39, rr=20+((i*53)%60); const tx=MCX+Math.cos(a)*rr*0.9, tz=MCZ+Math.sin(a)*rr*0.9; if(blockedMC(tx,tz)) continue;
+    const t=KIT.makeBlockyTree(); t.position.set(tx,0,tz); t.scale.setScalar(0.8+((i*7)%5)/6); KIT.shadow(t); scene.add(t); }
   const rockGeo=new T.BoxGeometry(3,2.4,3), rkMat=new T.MeshStandardMaterial({color:0x6f7378,roughness:0.98});
-  for(let i=0;i<34;i++){ const a=i*1.9, rr=18+((i*41)%62); const r=new T.Mesh(rockGeo,rkMat);
-    r.position.set(MCX+Math.cos(a)*rr*0.95,1.2,MCZ+Math.sin(a)*rr*0.95); r.rotation.y=i; r.castShadow=r.receiveShadow=true; scene.add(r); }
+  for(let i=0;i<38;i++){ const a=i*1.9, rr=18+((i*41)%62); const rx=MCX+Math.cos(a)*rr*0.95, rz=MCZ+Math.sin(a)*rr*0.95; if(blockedMC(rx,rz)) continue;
+    const r=new T.Mesh(rockGeo,rkMat); r.position.set(rx,1.2,rz); r.rotation.y=i; r.castShadow=r.receiveShadow=true; scene.add(r); }
   buildMegaGate();
   buildCompoundRoad();
 }

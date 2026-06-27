@@ -11,6 +11,12 @@ class Kit {
   glow(c, i=1) { return new THREE.MeshStandardMaterial({ color:0x05070a, emissive:c, emissiveIntensity:i, roughness:0.4 }); }
   box(w, h, d, m) { return new THREE.Mesh(new THREE.BoxGeometry(w,h,d), m); }
   cyl(rt, rb, h, m, axis) { const me=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,20), m); if(axis==='z') me.rotation.x=Math.PI/2; if(axis==='x') me.rotation.z=Math.PI/2; return me; }
+  linkCyl(g, x1,y1,z1, x2,y2,z2, r, m){ // a cylinder strut spanning point A→B (used for pyramid cross-braces)
+    const dx=x2-x1, dy=y2-y1, dz=z2-z1, len=Math.hypot(dx,dy,dz)||0.001;
+    const c=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,8), m);
+    c.position.set((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);
+    c.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), new THREE.Vector3(dx,dy,dz).normalize());
+    g.add(c); return c; }
   at(me, x, y, z) { me.position.set(x,y,z); return me; }
   shadow(g) { g.traverse(o => { if (o.isMesh) { o.castShadow=true; o.receiveShadow=true; } }); return g; }
   label(text, fg) {
@@ -816,6 +822,70 @@ class Kit {
     // simple pitched roof
     for(let i=0;i<4;i++){ const w=W+0.4-i*0.9; g.add(this.at(this.box(w,0.3,D+0.4, this.mat(0x7a4a28,0.95,0)),0,H+0.2+i*0.28,0)); }
     g.userData.collide=2.6;
+    return g;
+  }
+  makePyramid(R=22, h=26) { // smooth stone DOUBLE pyramid — apex-up meets inverted apex-down tip-to-tip — on steel highway supports
+    const g=new THREE.Group();
+    const stone=this.mat(0xc6bfb1,0.2,0.42), stoneD=this.mat(0x9a948a,0.5,0.2), steel=this.mat(0x6b7278,0.4,0.85), steelD=this.mat(0x474c52,0.5,0.8), bolt=this.glow(0xffb657,0.35);
+    const plinth=new THREE.Mesh(new THREE.CylinderGeometry(R*1.5,R*1.62,2.4,4), stoneD); plinth.rotation.y=Math.PI/4; plinth.position.y=1.2; g.add(plinth);
+    const low=new THREE.Mesh(new THREE.ConeGeometry(R, h, 4), stone); low.rotation.y=Math.PI/4; low.position.y=h/2+2.4; g.add(low);
+    const up=new THREE.Mesh(new THREE.ConeGeometry(R, h, 4), stone); up.rotation.set(Math.PI,Math.PI/4,0); up.position.y=h*1.5+2.4; g.add(up);
+    const joint=new THREE.Mesh(new THREE.OctahedronGeometry(2.4,0), this.glow(0x9fe8ff,0.6)); joint.position.y=h+2.4; g.add(joint);
+    const jl=new THREE.PointLight(0x8fe0ff,1.2,46); jl.position.y=h+2.4; g.add(jl);
+    const capY=2*h+2.4, corners=[[R,0],[-R,0],[0,R],[0,-R]];
+    corners.forEach(c=>{ const col=new THREE.Mesh(new THREE.CylinderGeometry(1.5,2.1, 2*h+2.4, 16), steel); col.position.set(c[0],h+1.2,c[1]); g.add(col);
+      g.add(this.at(new THREE.Mesh(new THREE.CylinderGeometry(2.6,2.6,1.3,16),steelD),c[0],0.65,c[1]));
+      g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(1.1,10,10),bolt),c[0],capY,c[1])); });
+    g.add(this.at(this.box(2*R,1.5,1.0,steelD),0,capY,R)); g.add(this.at(this.box(2*R,1.5,1.0,steelD),0,capY,-R));
+    g.add(this.at(this.box(1.0,1.5,2*R,steelD),R,capY,0)); g.add(this.at(this.box(1.0,1.5,2*R,steelD),-R,capY,0));
+    for(let i=0;i<4;i++){ const a=corners[i], b=corners[(i+1)%4]; this.linkCyl(g, a[0],3,a[1], b[0],capY-2,b[1], 0.5, steel); this.linkCyl(g, b[0],3,b[1], a[0],capY-2,a[1], 0.5, steel); }
+    g.userData.update=(t)=>{ joint.material.emissiveIntensity=0.5+Math.sin(t*2)*0.3; jl.intensity=1.0+Math.sin(t*2)*0.4; };
+    return g;
+  }
+  makeVillageHouse(kind) { // bigger fancier buildings: 'bank' | 'shop' | 'modern'. ('modern' needs makeCar — used later.)
+    const g=new THREE.Group();
+    if (kind==='modern') {
+      const wall=this.mat(0xe6e2da,0.7,0.05), wall2=this.mat(0x9a958c,0.7,0.05), glassM=new THREE.MeshStandardMaterial({ color:0x2a3a4a, roughness:0.1, metalness:0.6, transparent:true, opacity:0.55 }), wood=this.mat(0x7a5a36,0.8,0), dark=this.mat(0x1c1f24,0.6,0.3);
+      g.add(this.at(this.box(20,8,16,wall),0,4,0));
+      g.add(this.at(this.box(11,7,12,wall2),-9,3.5,3));
+      g.add(this.at(this.box(20.6,0.6,16.6,dark),0,8.3,0)); g.add(this.at(this.box(11.6,0.6,12.6,dark),-9,7.1,3));
+      [[-8.6,5.2,8.05],[-2,5.2,8.05],[5,5.2,8.05]].forEach(p=> g.add(this.at(this.box(4.4,4.4,0.2,glassM),p[0],p[1],p[2])));
+      g.add(this.at(this.box(9,5.2,0.2,glassM),9.95,4.2,2));
+      for(let i=0;i<5;i++){ const d=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.1,0.3,16,1,false,0,Math.PI), this.mat(0xd8d8d8,0.6,0.2)); d.rotation.set(-0.7,i,0); d.position.set(-7+i*3.4,8.9,(i%2?-4:4)); g.add(d); g.add(this.at(this.box(0.12,1.2,0.12,dark),-7+i*3.4,8.4,(i%2?-4:4))); }
+      g.add(this.at(this.box(0.2,5,0.2,dark),7,11,-5)); g.add(this.at(this.box(2.4,0.2,0.2,dark),7,13.4,-5));
+      const gar=new THREE.Group(); gar.position.set(0,0,8); g.add(gar);
+      gar.add(this.at(this.box(13,0.5,0.4,dark),0,6,0));
+      const gdoor=this.box(12.4,5.6,0.3,this.mat(0xb8bcc2,0.5,0.5)); gdoor.position.set(0,3,0.1); gar.add(gdoor); g.userData.garage=gdoor; g.userData.garageCY=3; g.userData.garageOY=8.8;
+      for(let i=1;i<5;i++) gar.add(this.at(this.box(12.4,0.08,0.34,dark),0,0.4+i*1.1,0.12));
+      const lambo=this.makeCar('lambo'); lambo.scale.setScalar(0.9); lambo.position.set(0,0,4.5); lambo.rotation.y=Math.PI; g.add(lambo);
+      const door=this.box(2.6,4.4,0.3,wood); door.position.set(-9,2.2,9.1); g.add(door); g.userData.door=door;
+      g.add(this.at(this.box(3.4,0.4,0.5,dark),-9,4.6,9.1));
+      const sign=new THREE.Mesh(new THREE.PlaneGeometry(8,1.6), new THREE.MeshBasicMaterial({ map:this.label('THE PINGAS ESTATE','#bfe0ff'), transparent:true })); sign.position.set(0,9.6,8.2); g.add(sign);
+      g.userData.update=(t)=>{};
+      return g;
+    }
+    const isBank=kind==='bank';
+    const wall=this.mat(isBank?0xcdbf9a:0xb98a52,0.85,0), trim=this.mat(isBank?0xc9a24a:0x6a3b1a,0.5,0.4), roof=this.mat(isBank?0x4a4438:0x7a3326,0.9,0), dark=this.mat(0x2a241c,0.8,0);
+    g.add(this.at(this.box(14,8,12,wall),0,4,0));
+    g.add(this.at(this.box(15,1.0,13,trim),0,8.2,0));
+    const rf=new THREE.Mesh(new THREE.ConeGeometry(10.6,4.5,4), roof); rf.rotation.y=Math.PI/4; rf.position.y=10.8; g.add(rf);
+    [-5,-1.7,1.7,5].forEach(x=> { g.add(this.at(new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.7,7,14), trim),x,3.7,6.2)); g.add(this.at(this.box(1.6,0.5,1.6,trim),x,0.5,6.2)); });
+    g.add(this.at(this.box(13,1.4,1.2,trim),0,7.6,6.4));
+    const door=this.box(3.0,5.0,0.3, dark); door.position.set(0,2.5,6.1); g.add(door); g.userData.door=door;
+    if (isBank) {
+      g.add(this.at(new THREE.Mesh(new THREE.CircleGeometry(1.4,24), this.mat(0xb8bcc2,0.4,0.7)),0,3,6.28));
+      g.add(this.at(this.box(0.4,2.4,0.1,this.glow(0xffd24a,0.5)),0,3,6.3)); g.add(this.at(this.box(2.4,0.4,0.1,this.glow(0xffd24a,0.5)),0,3,6.3));
+      const sign=new THREE.Mesh(new THREE.PlaneGeometry(9,1.8), new THREE.MeshBasicMaterial({ map:this.label('PINGAS BANK','#ffe9a0'), transparent:true })); sign.position.set(0,9.2,6.5); g.add(sign);
+      for(let i=0;i<3;i++){ const c=this.makeCoin(); c.scale.setScalar(0.9); c.position.set(4+i*0.1,1.2+i*0.6,8); g.add(c); }
+    } else {
+      const awn=this.box(13,0.3,3.2,this.mat(0x2e8b57,0.8,0)); awn.position.set(0,6.6,7.6); awn.rotation.x=0.18; g.add(awn);
+      for(let i=-6;i<=6;i+=2) g.add(this.at(this.box(0.9,0.3,3.2, i%4===0?this.mat(0xe8e8e8,0.8,0):this.mat(0x2e8b57,0.8,0)),i,6.6,7.6));
+      const sign=new THREE.Mesh(new THREE.PlaneGeometry(9,1.8), new THREE.MeshBasicMaterial({ map:this.label('FOOD STORE','#ffd9a0'), transparent:true })); sign.position.set(0,9.2,6.5); g.add(sign);
+      [[-5,8],[5,8.5]].forEach(p=>{ const cr=this.makeCrate(); cr.scale.setScalar(0.8); cr.position.set(p[0],0,p[1]); g.add(cr); });
+    }
+    const v=this.makeVillager(); v.scale.setScalar(0.95); v.position.set(isBank?-4:4,0,9.5); v.rotation.y=Math.PI; g.add(v);
+    g.userData.villager=v; const vu=v.userData.update;
+    g.userData.update=(t)=>{ if(vu) vu(t); };
     return g;
   }
   makeHeldItem(id){ // small first-person held block for the lower-right of the view
