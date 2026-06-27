@@ -181,6 +181,26 @@
     padding:8px 12px; font-family:inherit; font-weight:700; font-size:13px; letter-spacing:1px; color:#0a0d12;
     background:linear-gradient(180deg,#ffe07a,#f0b020); border:2px solid #fff0b8; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.5)}
   #give1m:hover{background:linear-gradient(180deg,#fff0a8,#ffc83a)} #give1m:active{transform:translateY(-50%) scale(.95)}
+  /* casino */
+  #casino{position:absolute; inset:0; z-index:40; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(20,8,30,.7), rgba(3,2,8,.94)); font-family:inherit}
+  #casino.hidden{display:none !important}
+  #casPanel{width:420px; max-width:94vw; padding:16px 18px; background:linear-gradient(180deg,#241433,#120a1c); border:3px solid #6a3b8a; border-radius:8px; box-shadow:0 0 0 2px #0a0610,0 14px 50px rgba(0,0,0,.7)}
+  #casTop{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .casTitle{font-size:18px; font-weight:700; letter-spacing:2px; color:#ffd24a; flex:1}
+  #casBal{font-size:16px; font-weight:700; color:#9fe8ff}
+  #casClose{cursor:pointer; pointer-events:auto; width:28px; height:28px; border-radius:6px; border:2px solid #6a3b8a; background:#1a0f28; color:#ffd0e0; font-weight:700}
+  #casTabs{display:flex; gap:8px; margin-bottom:12px}
+  .casTab{flex:1; cursor:pointer; pointer-events:auto; padding:8px; font-family:inherit; font-weight:700; letter-spacing:1px; color:#bfa9d8; background:#1a0f28; border:2px solid #3a2350; border-radius:6px}
+  .casTab.sel{color:#0a0610; background:linear-gradient(180deg,#ffe07a,#f0b020); border-color:#fff0b8}
+  .casGame.hidden{display:none}
+  #plinkoCv{display:block; margin:0 auto; background:#0a0610; border-radius:6px}
+  .casCtl{display:flex; align-items:center; gap:12px; margin-top:10px; justify-content:center}
+  .casCtl button{cursor:pointer; pointer-events:auto; padding:9px 14px; font-family:inherit; font-weight:700; letter-spacing:1px; color:#0a0610; background:linear-gradient(180deg,#ffe07a,#f0b020); border:2px solid #fff0b8; border-radius:7px}
+  .casCtl button:disabled{opacity:.5; cursor:default}
+  .casCtl span{font-size:13px; color:#cdb9e6}
+  #scratchGrid{display:grid; grid-template-columns:repeat(3,84px); grid-template-rows:repeat(3,84px); gap:8px; justify-content:center; margin:6px auto}
+  .scratchCell{width:84px; height:84px; border-radius:8px; background:linear-gradient(180deg,#4a3560,#2a1840); border:2px solid #6a3b8a; display:flex; align-items:center; justify-content:center; font-size:38px; cursor:pointer; user-select:none}
+  .scratchCell.revealed{background:#160c22; cursor:default} .scratchCell.win{box-shadow:0 0 14px #ffd24a; border-color:#ffd24a}
   .mcBlk{position:absolute; inset:5px; border-radius:1px; box-shadow:inset -4px -4px 0 rgba(0,0,0,.35), inset 4px 4px 0 rgba(255,255,255,.12)}
   .mcBlk[data-t="cobblestone"]{background:#8a8a8f} .mcBlk[data-t="wood"]{background:#6b4a28} .mcBlk[data-t="plank"]{background:#9c7a48}
   .mcBlk[data-t="coal"]{background:#8a8a8f; background-image:radial-gradient(#16161a 26%,transparent 27%); background-size:14px 14px; background-position:2px 3px}
@@ -299,6 +319,22 @@
   </div>
   <!-- cheat: +1,000,000 points (click, or press P in-game) -->
   <button id="give1m" title="Add 1,000,000 points (or press P)">+1M ◈</button>
+
+  <!-- PINGAS CASINO overlay (opened from the tree-roof terminal) -->
+  <div id="casino" class="hidden">
+    <div id="casPanel">
+      <div id="casTop"><span class="casTitle">🎰 PINGAS CASINO</span><span id="casBal">◈ 0</span><button id="casClose">✕</button></div>
+      <div id="casTabs"><button class="casTab sel" data-tab="plinko">PLINKO</button><button class="casTab" data-tab="scratch">SCRATCHER</button></div>
+      <div id="casPlinko" class="casGame">
+        <canvas id="plinkoCv" width="340" height="400"></canvas>
+        <div class="casCtl"><button id="plinkoDrop">DROP ◈100</button><span id="plinkoMsg">drop a ball</span></div>
+      </div>
+      <div id="casScratch" class="casGame hidden">
+        <div id="scratchGrid"></div>
+        <div class="casCtl"><button id="scratchBuy">BUY TICKET ◈250</button><span id="scratchMsg">scratch to match 3</span></div>
+      </div>
+    </div>
+  </div>
 
   <!-- LOADING -->
   <div id="loading" class="screen">

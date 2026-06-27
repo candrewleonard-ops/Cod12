@@ -249,6 +249,23 @@ function buildCompound(){
   // ── giant climbable tree ──
   giantTree=KIT.makeGiantTree(); giantTree.position.set(56,0,56); KIT.shadow(giantTree); scene.add(giantTree);
   if(giantTree.userData.update) worldAnims.push(giantTree.userData.update); colliders.push({x:56,z:56,r:4.5});  // thinner trunk hitbox so the ladder (r5.4) is reachable
+  // ── CASINO on the tree-roof deck (reach it by climbing the ladder) ──
+  if(giantTree.userData.platform){ const plat=giantTree.userData.platform;
+    const cab=(lx,lz,col)=>{ const c=new T.Group(); c.position.set(lx,0.65,lz);
+      c.add(KIT.at(KIT.box(1.3,2.6,1.0,KIT.mat(0x14101c,0.6,0.2)),0,1.3,0));
+      c.add(KIT.at(KIT.box(1.16,0.8,0.06,KIT.glow(col,0.9)),0,1.95,0.48));
+      [-0.62,0.62].forEach(xx=> c.add(KIT.at(KIT.box(0.06,2.6,0.08,KIT.glow(col,1.0)),xx,1.3,0.5)));
+      KIT.shadow(c); plat.add(c); };
+    cab(-10,-10,0xff48c0); cab(-7,-10,0x35d6ff); cab(-4,-10,0xffd24a);
+    const term=new T.Group(); term.position.set(-7,0.65,-7); plat.add(term);
+    term.add(KIT.at(KIT.box(2.4,1.1,1.4,KIT.mat(0x140a20,0.5,0.35)),0,0.9,0));
+    term.add(KIT.at(KIT.box(2.1,0.9,0.1,KIT.glow(0xffd24a,0.6)),0,1.2,0.66)); term.rotation.y=Math.PI;
+    const sign=new T.Mesh(new T.PlaneGeometry(11,2.0), new T.MeshBasicMaterial({map:KIT.label('PINGAS CASINO','#ffd24a'),transparent:true})); sign.position.set(-7,4.4,-10); plat.add(sign);
+    const cl=new T.PointLight(0xffd24a,0.8,30); cl.position.set(-7,5,-8); plat.add(cl);
+    addInteractable({ x:56-7, z:56-7, radius:4.5, type:'casino',
+      label:()=> (G.footY>80)? {key:'F', txt:'Open PINGAS CASINO', cost:0} : null,   // only on the roof
+      run:()=>{ openCasino(); return true; } });
+  }
   // ── villagers (big chungus) ──
   [[50,48],[60,52],[52,62]].forEach(p=>{ const v=KIT.makeChungus(); v.scale.setScalar(0.8); v.position.set(p[0],0,p[1]); KIT.shadow(v); scene.add(v); if(v.userData.update) worldAnims.push(v.userData.update); });
   // ── GIANT DOUBLE PYRAMID on steel supports (kit landmark at 12,80; walk under it) ──
@@ -2368,11 +2385,68 @@ function mcUnlock(){ /* build mode is available from round 1; kept for the giga-
   toast('MINECRAFT MODE','press E for inventory + crafting','#5a9e3a'); }
 
 
+/* ════════════════════ PINGAS CASINO (Plinko + Scratcher, wired to points) ════════════════════ */
+let _casBound=false, _plinkoBall=null, _plinkoTO=null, _scratchActive=false, _scratchCells=[];
+const PLINKO_MULT=[9,3,1.5,0.5,0,0.5,1.5,3,9];
+const SCRATCH_SYM=[['💎',2000,1],['7️⃣',1000,2],['⭐',500,4],['🔔',300,6],['🍒',150,10]];
+function casBal(){ const el=$('casBal'); if(el) el.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
+function openCasino(){ if(G.phase!=='play') return; G.phase='casino'; document.exitPointerLock&&document.exitPointerLock();
+  $('casino').classList.remove('hidden'); casBal(); casBindOnce(); plinkoDraw(); }
+function closeCasino(){ if(G.phase!=='casino') return; if(_plinkoTO){ clearTimeout(_plinkoTO); _plinkoTO=null; _plinkoBall=null; }
+  $('casino').classList.add('hidden'); G.phase='play'; lockMouse(); }
+function casTab(name){ $('casPlinko').classList.toggle('hidden', name!=='plinko'); $('casScratch').classList.toggle('hidden', name!=='scratch');
+  document.querySelectorAll('.casTab').forEach(t=> t.classList.toggle('sel', t.dataset.tab===name)); if(name==='plinko') plinkoDraw(); }
+function plinkoDraw(ball){ const cv=$('plinkoCv'); if(!cv) return; const x=cv.getContext('2d'), W=cv.width, H=cv.height;
+  x.fillStyle='#0a0610'; x.fillRect(0,0,W,H);
+  const rows=8, top=40, gap=(H-90)/rows;
+  x.fillStyle='#8a6ab0';
+  for(let r=0;r<rows;r++){ const n=r+3, span=(n-1)*34; for(let c=0;c<n;c++){ const px=W/2-span/2+c*34, py=top+r*gap; x.beginPath(); x.arc(px,py,3.5,0,7); x.fill(); } }
+  const sw=W/PLINKO_MULT.length;
+  for(let i=0;i<PLINKO_MULT.length;i++){ const m=PLINKO_MULT[i]; x.fillStyle=m>=9?'#ff48c0':m>=3?'#ffd24a':m>=1?'#35d6ff':'#3a2350';
+    x.fillRect(i*sw+1,H-44,sw-2,42); x.fillStyle='#0a0610'; x.font='700 13px Oswald,sans-serif'; x.textAlign='center'; x.fillText(m+'x', i*sw+sw/2, H-19); }
+  if(ball){ x.fillStyle='#fff'; x.beginPath(); x.arc(ball.x,ball.y,6,0,7); x.fill(); }
+}
+function plinkoDrop(){ if(_plinkoBall) return; if(!spend(100)){ $('plinkoMsg').textContent='need ◈100'; return; } casBal();
+  const cv=$('plinkoCv'), W=cv.width, H=cv.height, rows=8, top=40, gap=(H-90)/rows;
+  let slot=0; const path=[]; for(let r=0;r<rows;r++){ const dir=Math.random()<0.5?-1:1; if(dir>0) slot++; path.push(dir); }
+  slot=Math.max(0,Math.min(PLINKO_MULT.length-1, slot));
+  const targetX=slot*(W/PLINKO_MULT.length)+(W/PLINKO_MULT.length)/2;
+  let r=0; const ball={x:W/2,y:top-10}; _plinkoBall=ball; $('plinkoMsg').textContent='…';
+  const step=()=>{ if(r<rows){ ball.y=top+r*gap; ball.x+=path[r]*17; r++; plinkoDraw(ball); _plinkoTO=setTimeout(step,70); }
+    else { ball.x=targetX; ball.y=H-44; plinkoDraw(ball); const mult=PLINKO_MULT[slot], win=Math.round(100*mult);
+      if(win>0){ addPoints(win); if(AU&&AU.buy)AU.buy(); } casBal(); $('plinkoMsg').textContent = win>0?('WON ◈'+win+'  ('+mult+'x)'):'bust'; _plinkoBall=null; _plinkoTO=null; } };
+  step();
+}
+function scratchBuy(){ if(_scratchActive) return; if(!spend(250)){ $('scratchMsg').textContent='need ◈250'; return; } casBal();
+  _scratchActive=true; _scratchCells=[]; const pool=[]; SCRATCH_SYM.forEach(s=>{ for(let i=0;i<s[2];i++) pool.push(s); });
+  const grid=$('scratchGrid'); grid.innerHTML='';
+  for(let i=0;i<9;i++){ const sym=pool[(Math.random()*pool.length)|0]; _scratchCells.push({sym,revealed:false});
+    const el=document.createElement('div'); el.className='scratchCell'; el.textContent='?'; el.addEventListener('click',()=>scratchReveal(i)); grid.appendChild(el); }
+  $('scratchMsg').textContent='scratch all 9'; $('scratchBuy').disabled=true;
+}
+function scratchReveal(i){ const c=_scratchCells[i]; if(!c||c.revealed) return; c.revealed=true;
+  const el=$('scratchGrid').children[i]; el.textContent=c.sym[0]; el.classList.add('revealed');
+  if(AU&&AU.buy)AU.buy(); if(_scratchCells.every(x=>x.revealed)) scratchResolve();
+}
+function scratchResolve(){ const counts={}; _scratchCells.forEach(c=> counts[c.sym[0]]=(counts[c.sym[0]]||0)+1);
+  let win=0, bestSym=null;
+  _scratchCells.forEach(c=>{ const n=counts[c.sym[0]]; if(n>=3){ const w=c.sym[1]*(n>=5?5:n>=4?2:1); if(w>win){ win=w; bestSym=c.sym[0]; } } });
+  if(win>0){ addPoints(win); if(AU&&AU.power)AU.power(); _scratchCells.forEach((c,i)=>{ if(c.sym[0]===bestSym) $('scratchGrid').children[i].classList.add('win'); }); $('scratchMsg').textContent='WON ◈'+win+'!'; }
+  else $('scratchMsg').textContent='no match — buy another';
+  casBal(); _scratchActive=false; $('scratchBuy').disabled=false;
+}
+function casBindOnce(){ if(_casBound) return; _casBound=true;
+  const cl=$('casClose'); if(cl) cl.addEventListener('click', closeCasino);
+  document.querySelectorAll('.casTab').forEach(t=> t.addEventListener('click', ()=> casTab(t.dataset.tab)));
+  const pd=$('plinkoDrop'); if(pd) pd.addEventListener('click', plinkoDrop);
+  const sb=$('scratchBuy'); if(sb) sb.addEventListener('click', scratchBuy);
+}
 function give1M(){ addPoints(1000000); if(AU&&AU.power)AU.power(); toast('+1,000,000','cheat points','#ffd24a'); }
 function bindInput(){
   { const gb=$('give1m'); if(gb) gb.addEventListener('click', ()=>{ give1M(); if(G.phase==='play') lockMouse(); }); }
   document.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); G.keys[k]=true;
     if(k==='e' && G.minecraftMode && (G.phase==='play'||G.phase==='inv')){ mcToggle(); return; }
+    if(k==='escape' && G.phase==='casino'){ closeCasino(); return; }
     if(G.phase!=='play') return;
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
@@ -2687,6 +2761,7 @@ window.__spawnSample=()=>{ if(typeof pickSpawn!=='function') return 'n/a'; const
   for(let i=0;i<16;i++){ const p=pickSpawn(); s.push({x:+p[0].toFixed(1),z:+p[1].toFixed(1),zone:p[3]||'?',
     inWalkable: Math.hypot(p[0]-CAMP_X,p[1]-CAMP_Z) < R_OUT+2 }); } return s; };
 window.__teleport=(x,z)=>{ camera.position.x=CAMP_X+(x||0); camera.position.z=CAMP_Z+(z||0); };
+window.__casino={ open:()=>openCasino(), close:()=>closeCasino(), plinko:()=>plinkoDrop(), scratchBuy:()=>scratchBuy(), scratchReveal:(i)=>scratchReveal(i), tab:(n)=>casTab(n) };
 
 if(document.readyState==='complete'||document.readyState==='interactive') boot();
 else addEventListener('DOMContentLoaded', boot);
