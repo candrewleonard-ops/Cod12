@@ -266,6 +266,33 @@ function buildCompound(){
       label:()=> (G.footY>80)? {key:'F', txt:'Open PINGAS CASINO', cost:0} : null,   // only on the roof
       run:()=>{ openCasino(); return true; } });
   }
+  // ── MARKETPLACE COMPUTER (by the shop) — buy/sell items + live BTC market ──
+  { const mx2=20, mz2=24;
+    const desk=new T.Group(); desk.position.set(mx2,0,mz2); desk.rotation.y=-0.5; scene.add(desk);
+    desk.add(KIT.at(KIT.box(2.6,0.9,1.3,KIT.mat(0x2a2230,0.7,0.2)),0,0.9,0));      // desk body
+    desk.add(KIT.at(KIT.box(2.1,1.2,0.12,KIT.mat(0x0a0a12,0.4,0.4)),0,2.1,-0.4));  // monitor frame
+    desk.add(KIT.at(KIT.box(1.9,1.0,0.06,KIT.glow(0x35d6ff,0.8)),0,2.1,-0.33));    // glowing screen
+    desk.add(KIT.at(KIT.box(0.3,1.0,0.3,KIT.mat(0x14141c,0.6,0.2)),0,1.7,-0.4));   // monitor stand
+    const msign=new T.Mesh(new T.PlaneGeometry(5.5,1.2), new T.MeshBasicMaterial({map:KIT.label('MARKETPLACE','#7fe0ff'),transparent:true})); msign.position.set(mx2,4.0,mz2); msign.rotation.y=-0.5; scene.add(msign);
+    const ml=new T.PointLight(0x35d6ff,0.9,18); ml.position.set(mx2,3.4,mz2); scene.add(ml);
+    KIT.shadow(desk); colliders.push({x:mx2,z:mz2,r:1.8});
+    addInteractable({ x:mx2, z:mz2, radius:3.2, collide:1.2, type:'market',
+      label:()=> ({key:'F', txt:'Open MARKETPLACE · BTC', cost:0}),
+      run:()=>{ openMarket(); return true; } }); }
+  // ── ENCHANTING TABLE (under the giant pyramid landmark at 12,80) — spend points to enchant your gun ──
+  { const ex2=12, ez2=80;
+    const tbl=new T.Group(); tbl.position.set(ex2,0,ez2); scene.add(tbl);
+    tbl.add(KIT.at(KIT.box(2.2,1.0,2.2,KIT.mat(0x1a1226,0.6,0.3)),0,1.0,0));        // obsidian podium
+    tbl.add(KIT.at(KIT.box(1.6,0.18,1.6,KIT.mat(0x3a2a55,0.5,0.4)),0,1.6,0));       // top slab
+    const book=new T.Mesh(new T.BoxGeometry(0.9,0.22,0.7), KIT.glow(0xff48c0,0.7)); book.position.set(0,2.1,0); tbl.add(book);
+    const eorb=new T.Mesh(new T.SphereGeometry(0.28,12,12), KIT.glow(0xbf6cff,1.6)); eorb.position.set(0,2.9,0); tbl.add(eorb);
+    const el=new T.PointLight(0xbf6cff,1.3,18,2); el.position.set(ex2,3.4,ez2); scene.add(el);
+    const esign=new T.Mesh(new T.PlaneGeometry(5.5,1.2), new T.MeshBasicMaterial({map:KIT.label('ENCHANTING','#cf9cff'),transparent:true})); esign.position.set(ex2,4.4,ez2); scene.add(esign);
+    KIT.shadow(tbl); colliders.push({x:ex2,z:ez2,r:1.6});
+    worldAnims.push((t)=>{ book.rotation.y=t*0.9; eorb.position.y=2.9+Math.sin(t*2)*0.12; });
+    addInteractable({ x:ex2, z:ez2, radius:3.2, collide:1.2, type:'enchant',
+      label:()=> ({key:'F', txt:'Open ENCHANTING TABLE', cost:0}),
+      run:()=>{ openEnchant(); return true; } }); }
   // ── villagers (big chungus) ──
   [[50,48],[60,52],[52,62]].forEach(p=>{ const v=KIT.makeChungus(); v.scale.setScalar(0.8); v.position.set(p[0],0,p[1]); KIT.shadow(v); scene.add(v); if(v.userData.update) worldAnims.push(v.userData.update); });
   // ── GIANT DOUBLE PYRAMID on steel supports (kit landmark at 12,80; walk under it) ──
@@ -1236,7 +1263,7 @@ function fire(){
   const w=curW(); if(!w) return;
   const d=WDEF[w.type]; const now=clock.elapsedTime;
   if(w.reloading) return;
-  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.superUpgrade?1.3:1) * (w.akimboRate||1);
+  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.superUpgrade?1.3:1) * (w.akimboRate||1) * (w.enchRate||1);
   if(now - w.lastShot < 1/rate) return;
   if(w.type==='axe'){ return; } // axe handled by charge system
   // Melee weapons (pickaxe / diamond pickaxe): no ammo, swing + ray hit, big point reward
@@ -1244,7 +1271,7 @@ function fire(){
     w.lastShot=now; recoil=Math.min(0.5, recoil+0.4); AU.shoot('pistol');  // bigger kick = swing
     camera.getWorldDirection(_dir);
     const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
-    const dmgMul=(w.superUpgrade?2:1)*(G.instaKill>0?1000:1);
+    const dmgMul=(w.superUpgrade?2:1)*(G.instaKill>0?1000:1)*(w.enchDmg||1);
     const hit=rayHitEnemy(ox,oy,oz,_dir.x,_dir.y,_dir.z,d.range);
     if(hit){ const dmg=d.dmg*dmgMul;
       if(hit.e) damageEnemy(hit.e, dmg, false, 0, true);
@@ -1269,7 +1296,7 @@ function fire(){
 
   camera.getWorldDirection(_dir);
   const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
-  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (w.superUpgrade?2:1) * (w.superPaP?1.4:1);
+  const dmgMul = (w.pap?2.2:1) * (G.instaKill>0?1000:1) * (w.superUpgrade?2:1) * (w.superPaP?1.4:1) * (w.enchDmg||1);
 
   if(w.type==='wonder'){ spawnBolt(ox,oy,oz,_dir.x,_dir.y,_dir.z, d.dmg*dmgMul, d.aoe); return; }
 
@@ -1408,6 +1435,7 @@ function killEnemy(e, head, melee){
   G.kills++; addPoints(melee?130:(head?100:60));
   feedDogs(e.grp.position.x, e.grp.position.z, e.zone);   // feed a nearby wall dog
   if(Math.random()<0.04 + (G.round>3?0.02:0)) spawnDrop(e.grp.position.x, e.grp.position.z);
+  { const w=curW(); if(w && w.ench && w.ench.vamp && G.health<G.maxHealth){ G.health=Math.min(G.maxHealth,G.health+6); updateHealthHUD(); } }  // Vampirism enchant
   // RAGDOLL: keep the corpse, topple it, despawn after 3s (so head-pops are actually visible)
   e.dying=true; e.dieT=clock.elapsedTime; e.toppleDir=(Math.random()<0.5?-1:1)*(1.2+Math.random()*0.35);
   checkRoundProgress();
@@ -2528,6 +2556,8 @@ function bindInput(){
   document.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); G.keys[k]=true;
     if(k==='e' && G.minecraftMode && (G.phase==='play'||G.phase==='inv')){ mcToggle(); return; }
     if(k==='escape' && G.phase==='casino'){ closeCasino(); return; }
+    if(k==='escape' && G.phase==='market'){ closeMarket(); return; }
+    if(k==='escape' && G.phase==='enchant'){ closeEnchant(); return; }
     if(G.phase!=='play') return;
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
@@ -2843,6 +2873,8 @@ window.__spawnSample=()=>{ if(typeof pickSpawn!=='function') return 'n/a'; const
     inWalkable: Math.hypot(p[0]-CAMP_X,p[1]-CAMP_Z) < R_OUT+2 }); } return s; };
 window.__teleport=(x,z)=>{ camera.position.x=CAMP_X+(x||0); camera.position.z=CAMP_Z+(z||0); };
 window.__casino={ open:()=>openCasino(), close:()=>closeCasino(), plinko:()=>plinkoDrop(), scratchBuy:()=>scratchBuy(), scratchReveal:(i)=>scratchReveal(i), tab:(n)=>casTab(n) };
+window.__market={ open:()=>openMarket(), close:()=>closeMarket(), tab:(n)=>mkTab(n), btcBuy:()=>btcBuy(), btcSell:()=>btcSell(), price:()=>_btcPrice };
+window.__enchant={ open:()=>openEnchant(), close:()=>closeEnchant(), list:()=>ENCHANTS };
 
 if(document.readyState==='complete'||document.readyState==='interactive') boot();
 else addEventListener('DOMContentLoaded', boot);

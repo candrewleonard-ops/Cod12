@@ -181,6 +181,34 @@
     padding:8px 12px; font-family:inherit; font-weight:700; font-size:13px; letter-spacing:1px; color:#0a0d12;
     background:linear-gradient(180deg,#ffe07a,#f0b020); border:2px solid #fff0b8; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.5)}
   #give1m:hover{background:linear-gradient(180deg,#fff0a8,#ffc83a)} #give1m:active{transform:translateY(-50%) scale(.95)}
+  /* marketplace + enchanting (share styling) */
+  #market,#enchant{position:absolute; inset:0; z-index:40; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(10,18,28,.72), rgba(3,5,9,.94)); font-family:inherit}
+  #market.hidden,#enchant.hidden{display:none !important}
+  #mkPanel,#enPanel{width:440px; max-width:94vw; max-height:90vh; overflow:auto; padding:16px 18px; background:linear-gradient(180deg,#16202e,#0c121c); border:3px solid #2a4458; border-radius:8px; box-shadow:0 0 0 2px #060a10,0 14px 50px rgba(0,0,0,.7)}
+  #mkTop{display:flex; align-items:center; gap:10px; margin-bottom:10px}
+  .mkTitle{font-size:17px; font-weight:700; letter-spacing:2px; color:#7fe0ff; flex:1}
+  #mkBal,#enBal{font-size:15px; font-weight:700; color:#ffd24a}
+  #mkClose,#enClose{cursor:pointer; pointer-events:auto; width:28px; height:28px; border-radius:6px; border:2px solid #2a4458; background:#0c121c; color:#cfe0ff; font-weight:700}
+  #mkTabs{display:flex; gap:8px; margin-bottom:12px}
+  .mkTab{flex:1; cursor:pointer; pointer-events:auto; padding:8px; font-family:inherit; font-weight:700; color:#9fc0d8; background:#0c121c; border:2px solid #233848; border-radius:6px}
+  .mkTab.sel{color:#06121a; background:linear-gradient(180deg,#7fe0ff,#2aa7d6); border-color:#bff0ff}
+  .mkGame.hidden{display:none}
+  #mkItems{display:grid; grid-template-columns:1fr 1fr; gap:6px; max-height:50vh; overflow-y:auto}
+  .mkRow{display:flex; align-items:center; gap:6px; padding:5px 7px; background:rgba(8,14,20,.6); border:1px solid #233848; border-radius:5px}
+  .mkRow .mcBlk{position:relative; width:24px; height:24px; inset:auto; flex:0 0 24px}
+  .mkRow .mkN{flex:1; font-size:11px; color:#cfe0ff; text-transform:uppercase; min-width:0}
+  .mkRow button{cursor:pointer; pointer-events:auto; font-family:inherit; font-weight:700; font-size:11px; padding:4px 6px; border-radius:5px; border:1px solid; background:transparent}
+  .mkBuy{color:#7be88a; border-color:#2e7d44 !important} .mkSell{color:#ffae6a; border-color:#7d5a2e !important}
+  #btcCv{display:block; margin:0 auto; background:#06101a; border-radius:6px}
+  #btcRow{display:flex; justify-content:space-between; margin:8px 2px; font-weight:700; color:#ffd24a} #btcHold{color:#7fe0ff}
+  #btcCtl{display:flex; align-items:center; gap:10px; justify-content:center; flex-wrap:wrap}
+  #btcCtl label{font-size:12px; color:#9fc0d8; display:flex; align-items:center; gap:6px}
+  #btcCtl button{cursor:pointer; pointer-events:auto; font-family:inherit; font-weight:700; padding:8px 16px; border-radius:6px; border:2px solid}
+  #btcBuy{color:#06121a; background:linear-gradient(180deg,#7be88a,#2e9d4a); border-color:#bfffcf} #btcSell{color:#06121a; background:linear-gradient(180deg,#ffb86a,#d6802a); border-color:#ffe0b8}
+  #enList{display:flex; flex-direction:column; gap:6px}
+  .enRow{display:flex; align-items:center; gap:8px; padding:8px 10px; background:rgba(8,14,20,.6); border:1px solid #3a2a58; border-radius:6px; cursor:pointer; pointer-events:auto}
+  .enRow:hover{border-color:#a060ff} .enRow .enN{flex:1; font-weight:700; color:#d8c0ff} .enRow .enC{color:#ffd24a; font-weight:700}
+  #enMsg{margin-top:10px; font-size:12px; color:#9f88c0; text-align:center}
   /* casino */
   #casino{position:absolute; inset:0; z-index:40; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(20,8,30,.7), rgba(3,2,8,.94)); font-family:inherit}
   #casino.hidden{display:none !important}
@@ -319,6 +347,30 @@
   </div>
   <!-- cheat: +1,000,000 points (click, or press P in-game) -->
   <button id="give1m" title="Add 1,000,000 points (or press P)">+1M ◈</button>
+
+  <!-- MARKETPLACE + BITCOIN terminal overlay -->
+  <div id="market" class="hidden">
+    <div id="mkPanel">
+      <div id="mkTop"><span class="mkTitle">🖥 PINGAS MARKET</span><span id="mkBal">◈ 0</span><button id="mkClose">✕</button></div>
+      <div id="mkTabs"><button class="mkTab sel" data-tab="items">ITEMS</button><button class="mkTab" data-tab="btc">BITCOIN ₿</button></div>
+      <div id="mkItems" class="mkGame"></div>
+      <div id="mkBtc" class="mkGame hidden">
+        <canvas id="btcCv" width="380" height="180"></canvas>
+        <div id="btcRow"><span id="btcPrice">₿ —</span><span id="btcHold">held 0 ₿</span></div>
+        <div id="btcCtl"><label>amt <input id="btcAmt" type="range" min="0.1" max="5" step="0.1" value="1"><span id="btcAmtV">1.0 ₿</span></label>
+          <button id="btcBuy">BUY</button><button id="btcSell">SELL</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ENCHANTING table overlay -->
+  <div id="enchant" class="hidden">
+    <div id="enPanel">
+      <div id="mkTop"><span class="mkTitle">✦ ENCHANTING TABLE</span><span id="enBal">◈ 0</span><button id="enClose">✕</button></div>
+      <div id="enList"></div>
+      <div id="enMsg">enchant your held gun</div>
+    </div>
+  </div>
 
   <!-- PINGAS CASINO overlay (opened from the tree-roof terminal) -->
   <div id="casino" class="hidden">
