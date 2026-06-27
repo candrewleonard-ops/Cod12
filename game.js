@@ -1245,6 +1245,11 @@ function fire(){
   w.lastShot=now; w.ammo--; updateAmmoHUD();
   recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2) * (G.perks.has('pingasliquid')?0.6:1));
   muzzle.intensity=2.4; muzzleT=now;
+  // position the flash at the firing gun's actual barrel tip (userData.muzzle), per weapon
+  { const wpn = arms && arms.userData && arms.userData.weapon;
+    if(wpn && wpn.userData && wpn.userData.muzzle){ wpn.updateWorldMatrix(true,false);
+      const wp=wpn.localToWorld(wpn.userData.muzzle.clone()); camera.worldToLocal(wp); muzzle.position.copy(wp); }
+    else { muzzle.position.set(0.2,-0.2,-1.2); } }
   AU.shoot(w.type==='shotgun'?'shotgun': w.type==='sniper'?'sniper': w.type==='wonder'?'wonder': w.type);
 
   camera.getWorldDirection(_dir);
