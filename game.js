@@ -2110,6 +2110,9 @@ const MC_ITEMS = {
   stick:       { name:'STICK',        kind:'mat',  stack:64, place:false, desc:'Crafting material — combine for tools.' },
   wheat:       { name:'WHEAT',        kind:'mat',  stack:64, place:false, desc:'Harvested crop. 3 in a row craft Bread.' },
   pingasore:   { name:'PINGAS ORE',   kind:'mat',  stack:64, place:false, desc:'Glowing ore from the cave.' },
+  flint:       { name:'FLINT',        kind:'mat',  stack:64, place:false, desc:'Knapped from stone. Gun-crafting + gunpowder.' },
+  gunpowder:   { name:'GUNPOWDER',    kind:'mat',  stack:64, place:false, desc:'Coal + flint. The heart of every craftable gun.' },
+  essence:     { name:'ESSENCE',      kind:'mat',  stack:64, place:false, desc:'Distilled from diamond. Fuels enchanting & rifles.' },
   // food
   bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
   // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
@@ -2143,15 +2146,40 @@ const MC_RECIPES = [
   { name:'Super Upgrade',  desc:'3 diamond blocks → 2× damage + 30% fire-rate on your held weapon', out:{type:'super',count:1}, shape:[['diamondblock','diamondblock','diamondblock']] },
   { name:'House Kit',      desc:'planks + door + wood → build a house in front of you', out:{type:'housekit',count:1},
       shape:[['plank','plank','plank'],['plank','door','plank'],['wood','wood','wood']] },
+  // ── new materials ──
+  { name:'Flint',          desc:'2 stone → 2 flint',                 out:{type:'flint',count:2},        shape:[['stone','stone']] },
+  { name:'Gunpowder',      desc:'coal + flint → 2 gunpowder',        out:{type:'gunpowder',count:2},    shape:[['coal','flint']] },
+  { name:'Essence',        desc:'diamond + coal → 2 essence',        out:{type:'essence',count:2},      shape:[['diamond','coal']] },
+  // ── GUN CRAFTING (iron = steel, + gunpowder + flint) ──
+  { name:'Craft Mauser',   desc:'iron + gunpowder + flint → a MAUSER pistol', out:{type:'pistol',count:1},
+      shape:[['','iron',''],['flint','gunpowder','flint']] },
+  { name:'Craft SMG',      desc:'2 iron + 2 gunpowder → an MP-40 SMG', out:{type:'smg',count:1},
+      shape:[['iron','iron'],['gunpowder','gunpowder']] },
+  { name:'Craft Shotgun',  desc:'3 iron + 3 gunpowder → a TRENCH GUN', out:{type:'shotgun',count:1},
+      shape:[['iron','iron','iron'],['gunpowder','gunpowder','gunpowder']] },
+  { name:'Craft Rifle',    desc:'3 iron + gunpowder + essence → a RIFLE', out:{type:'rifle',count:1},
+      shape:[['iron','iron','iron'],['','gunpowder',''],['','essence','']] },
 ];
 function mcRecipeBookHTML(){
-  return MC_RECIPES.map(r=>{
+  return MC_RECIPES.map((r,ri)=>{
     const t = (r.out.type==='diapick')?'diapick' : (r.out.type==='super')?'super' : (r.out.type==='housekit')?'plank' : r.out.type;
-    return '<div class="recipeRow"><div class="mcBlk" data-t="'+t+'"></div>'
+    return '<div class="recipeRow" data-ri="'+ri+'" title="click to auto-fill the craft grid">'+mcBlkHTML(t)
       + '<div class="rInfo"><div class="rName">'+r.name+(r.out.count>1?' ×'+r.out.count:'')+'</div>'
       + '<div class="rDesc">'+r.desc+'</div></div></div>';
   }).join('');
 }
+// click a recipe → pull its ingredients from your bag into the 3×3 grid, top-left aligned (kit's recipe autofill)
+function mcAutofill(ri){
+  const rec=MC_RECIPES[ri]; if(!rec) return;
+  mcReturnCraftToInv();                                  // clear the grid back into the bag first
+  const need={}; rec.shape.forEach(row=>row.forEach(id=>{ if(id) need[id]=(need[id]||0)+1; }));
+  for(const id in need){ if(invCount(id)<need[id]){ toast('CAN’T AUTO-FILL','need '+need[id]+'× '+itemName(id),'#ffae3a'); return; } }
+  for(let r=0;r<rec.shape.length;r++) for(let c=0;c<rec.shape[r].length;c++){ const id=rec.shape[r][c];
+    if(id && invRemove(id,1)>0) INV.craft[r*3+c]={id,n:1}; }
+  renderInv(); renderHotbar(); mcEvalRecipe();
+}
+// return every craft-grid stack to the bag (used before autofill / refill)
+function mcReturnCraftToInv(){ for(let i=0;i<9;i++){ const s=INV.craft[i]; if(s){ invAdd(s.id,s.n); INV.craft[i]=null; } } }
 
 // ── inventory state: slots hold {id,n} or null ──
 const INV = { main:new Array(20).fill(null), hot:new Array(5).fill(null), craft:new Array(9).fill(null), held:null, sel:0 };
@@ -2198,6 +2226,7 @@ function mcCraft(){ if(!mcMatch) return; const rec=mcMatch, o=rec.out;   // capt
   if(o.type==='diapick'){ upgradeToDiamondPick(); }
   else if(o.type==='super'){ applySuperUpgrade(); }
   else if(o.type==='housekit'){ placeHousePrefabInFront(); }
+  else if(itemDef(o.type) && itemDef(o.type).kind==='gun'){ giveWeapon(o.type,false); }   // crafted a gun → equip it
   else invAdd(o.type,o.count);
   if(AU&&AU.buy) AU.buy(); toast('CRAFTED '+rec.name.toUpperCase(), o.type==='super'||o.type==='diapick'||o.type==='housekit'?'':'+'+o.count, '#9fd0ff');
   renderInv(); renderHotbar(); mcEvalRecipe(); }
@@ -2262,6 +2291,7 @@ function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true; const ov=$('mc
   const zoneOf=(el)=>{ const s=el.closest('.mcSlot'); if(!s) return null;
     if(s.dataset.main!=null) return ['main',+s.dataset.main]; if(s.dataset.hot!=null) return ['hot',+s.dataset.hot]; if(s.dataset.craft!=null) return ['craft',+s.dataset.craft]; return null; };
   ov.addEventListener('click', e=>{ if(e.target.closest('#mcCraftResult')){ mcCraft(); return; }
+    const rr=e.target.closest('.recipeRow'); if(rr){ mcAutofill(+rr.dataset.ri); return; }
     const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],false); });
   ov.addEventListener('contextmenu', e=>{ e.preventDefault(); const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],true); });
   ov.addEventListener('mousemove', e=>{ updateHeldCursor(e.clientX+14,e.clientY+14); });
