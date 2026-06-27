@@ -990,6 +990,20 @@ class Kit {
     const ring=new THREE.Mesh(new THREE.TorusGeometry(0.27,0.1,10,20), steel); ring.position.y=-0.84; g.add(ring);
     g.add(this.at(this.box(0.2,0.55,0.17,dark),0,-0.2,0)); this.shadow(g); return g;
   }
+  makeRadioTower(h=32) { // lattice mast with a shootable grey ball on top (shoot → blue electric aura)
+    const g=new THREE.Group();
+    const steel=this.mat(0x8a9198,0.5,0.7), red=this.mat(0xc0392b,0.6,0.2);
+    [[1,1],[-1,1],[1,-1],[-1,-1]].forEach(L=>{ this.linkCyl(g, L[0]*3.2,0,L[1]*3.2, L[0]*0.9,h,L[1]*0.9, 0.34, steel); });
+    for(let i=1;i<10;i++){ const y=i/10*h, s=3.2-(i/10)*2.3; g.add(this.at(this.box(2*s,0.16,0.16,steel),0,y,0)); g.add(this.at(this.box(0.16,0.16,2*s,steel),0,y,0)); }
+    [0.4,0.72].forEach(f=> g.add(this.at(this.box(0.55,1.3,0.55,red),0,f*h,0)));
+    const ballMat=this.mat(0x9aa0a6,0.6,0.3); const ball=new THREE.Mesh(new THREE.SphereGeometry(2.1,20,20), ballMat); ball.position.y=h+2.2; ball.userData.radioBall=true; g.add(ball);
+    const aura=new THREE.Mesh(new THREE.SphereGeometry(2.9,16,16), this.glow(0x3fc8ff,1.4)); aura.material.transparent=true; aura.material.opacity=0.0; aura.position.y=h+2.2; g.add(aura);
+    const tl=new THREE.PointLight(0x3fc8ff,0,34); tl.position.y=h+2.2; g.add(tl);
+    g.userData.ball=ball; g.userData.lit=false; g.userData.topY=h+2.2;
+    g.userData.setLit=(v)=>{ g.userData.lit=v; ball.material=v?this.glow(0x3fc8ff,1.3):ballMat; tl.intensity=v?1.4:0; };
+    g.userData.update=(t)=>{ const v=g.userData.lit; aura.material.opacity=v?(0.3+Math.sin(t*5)*0.12):0; if(v){ aura.scale.setScalar(1+Math.sin(t*6)*0.08); tl.intensity=1.2+Math.sin(t*8)*0.5; } };
+    return g;
+  }
   makeHeldItem(id){ // small first-person held block for the lower-right of the view
     if(!id) return null;
     const blockIds=['stone','wood','plank','glass','dirt','grass','obsidian','brick','diamondblock','leaves','cobblestone','door'];

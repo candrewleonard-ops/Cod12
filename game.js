@@ -148,6 +148,7 @@ const AU = (() => {
 let towerDoorPivot=null, doorOpen=false;
 const colliders = [];      // {x,z,r} cylinder colliders for props (cheap)
 const oreBlocks = [];      // minable Minecraft ore blocks {grp,x,y,z,r,hp,maxhp,reward,kind,glow,alive,respawn}
+const radioBalls = [];     // shootable radio-tower balls by the pyramid (light all 4 → lightning easter egg)
 const worldAnims = [];     // per-frame update() callbacks for compound props (cave, giant tree, villagers)
 let giantTree = null, megaGate = null, round25Gate = null;
 let pigFP = null, carPOV = null;       // first-person mount/drive viewmodels (attached to camera)
@@ -255,6 +256,10 @@ function buildCompound(){
   const pyr=KIT.makePyramid(22,26); pyr.position.set(12,0,80); KIT.shadow(pyr); scene.add(pyr);
   if(pyr.userData.update) worldAnims.push(pyr.userData.update);
   [[34,80],[-10,80],[12,102],[12,58]].forEach(c=> colliders.push({x:c[0],z:c[1],r:2.4}));   // 4 support legs only
+  // ── 4 RADIO TOWERS around the pyramid — shoot all 4 balls → lightning easter egg ──
+  [[-16,52],[40,52],[-16,108],[40,108]].forEach(c=>{ const rt=KIT.makeRadioTower(32); rt.position.set(c[0],0,c[1]); KIT.shadow(rt); scene.add(rt);
+    if(rt.userData.update) worldAnims.push(rt.userData.update); colliders.push({x:c[0],z:c[1],r:3.4});
+    radioBalls.push({grp:rt, x:c[0], y:rt.userData.topY, z:c[1], r:2.3, lit:false}); });
   // ── fancier village buildings: bank (96,28) + shop (28,16) (the modern estate goes on the giant tree in a later phase) ──
   const bank=KIT.makeVillageHouse('bank'); bank.position.set(96,0,28); bank.rotation.y=-0.9; KIT.shadow(bank); scene.add(bank); if(bank.userData.update) worldAnims.push(bank.userData.update); colliders.push({x:96,z:28,r:7});
   const shop=KIT.makeVillageHouse('shop'); shop.position.set(28,0,16); shop.rotation.y=0.5; KIT.shadow(shop); scene.add(shop); if(shop.userData.update) worldAnims.push(shop.userData.update); colliders.push({x:28,z:16,r:7});
@@ -411,6 +416,24 @@ function exitSkyRoom(){ if(!G.inSkyRoom) return; G.inSkyRoom=false;
   const rp=G.skyReturn||{x:round25Gate?round25Gate.x:CAMP_X, z:round25Gate?round25Gate.z+10:CAMP_Z};
   camera.position.set(rp.x, EYE, rp.z); G.eyeY=EYE; G.footY=0; G.vy=0; G.portalDwell=0;
   AU&&AU.buy&&AU.buy(); toast('RETURNED','','#b24bff'); }
+
+// ════════ RADIO-TOWER EASTER EGG — shoot all 4 balls → the pyramid awakens ════════
+function checkRadioHit(){ if(!radioBalls.length) return;
+  camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+  let best=null, bd=260;
+  for(const rb of radioBalls){ if(rb.lit) continue; const t=sphereT(ox,oy,oz,_dir.x,_dir.y,_dir.z,rb.x,rb.y,rb.z,rb.r,bd); if(t>0&&t<bd){ bd=t; best=rb; } }
+  if(best){ best.lit=true; best.grp.userData.setLit(true); if(AU&&AU.hit)AU.hit();
+    const n=radioBalls.filter(r=>r.lit).length;
+    if(n>=4) radioEasterEgg(); else toast('RADIO BALL '+n+'/4','light all 4 towers by the pyramid','#3fc8ff'); }
+}
+function radioEasterEgg(){
+  const px=12, pz=80;
+  for(let i=0;i<6;i++) fxExplosion(px+(Math.random()-0.5)*42, 8+Math.random()*44, pz+(Math.random()-0.5)*42, 0x3fc8ff, 1.2);
+  G.instaKill=clock.elapsedTime+30; G.fireRateBuff=clock.elapsedTime+60;
+  G.weapons.forEach(w=>{ w.ammo=w.mag; w.reserve=Math.max(w.reserve, w.mag*4); }); updateAmmoHUD();
+  if(AU&&AU.power)AU.power(); toast('⚡ THE PYRAMID AWAKENS','insta-kill 30s + 2× fire-rate 60s','#3fc8ff');
+}
 
 function buildTower(){
   const wallMat=new T.MeshStandardMaterial({color:0x22262b,roughness:0.96,metalness:0.05});
@@ -1193,6 +1216,7 @@ function fire(){
     else { mineLook(d.dmg*(w.superUpgrade?2:1)); }   // missed the undead → mine the tree/rock/block you swung at
     addPoints(5); return;
   }
+  checkRadioHit();                                   // a ballistic shot can light a radio-tower ball
   if(w.ammo<=0){ AU.dry(); flashReloadHint(); return; }
   w.lastShot=now; w.ammo--; updateAmmoHUD();
   recoil = Math.min(0.5, recoil + (d.kind==='ballistic'? (d.pellets?0.32:0.14) : 0.2) * (G.perks.has('pingasliquid')?0.6:1));
