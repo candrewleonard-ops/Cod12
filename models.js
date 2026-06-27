@@ -888,6 +888,55 @@ class Kit {
     g.userData.update=(t)=>{ if(vu) vu(t); };
     return g;
   }
+  makePig() { // pink Minecraft-style rideable pig — walk/run gait
+    const g=new THREE.Group();
+    const pink=this.mat(0xeca0bb,0.95,0), snoutM=this.mat(0xe28aa6,0.95,0), dark=this.mat(0x6e3146,0.9,0), legM=this.mat(0xd98ca8,0.95,0);
+    const body=this.at(this.box(1.05,0.95,1.7, pink),0,1.0,0); g.add(body);
+    const head=new THREE.Group(); head.position.set(0,1.05,1.02); g.add(head);
+    head.add(this.box(0.92,0.86,0.7, pink));
+    head.add(this.at(this.box(0.5,0.42,0.18, snoutM),0,-0.1,0.4));
+    [-0.13,0.13].forEach(x=> head.add(this.at(this.box(0.1,0.14,0.06, dark), x,-0.12,0.5)));
+    [-0.34,0.34].forEach(x=> head.add(this.at(this.box(0.22,0.22,0.12, pink), x,0.5,-0.06)));
+    [-0.22,0.22].forEach(x=> head.add(this.at(this.box(0.12,0.12,0.04, dark), x,0.12,0.36)));
+    g.add(this.at(this.box(0.12,0.12,0.16, pink),0,1.3,-0.92));
+    g.add(this.at(this.box(0.1,0.22,0.1, pink),0,1.16,-1.0));
+    const sad=this.mat(0x7a4326,0.8,0); g.add(this.at(this.box(1.12,0.16,0.95, sad),0,1.5,-0.05));
+    g.add(this.at(this.box(1.18,0.1,0.3, this.mat(0x4a2715,0.8,0)),0,1.47,-0.05));
+    [-0.56,0.56].forEach(x=> g.add(this.at(this.box(0.12,0.5,0.5, this.mat(0x5a3320,0.85,0)), x,1.2,-0.05)));
+    const legs=[];
+    const mk=(x,z)=>{ const L=new THREE.Group(); L.position.set(x,0.62,z); L.add(this.at(this.box(0.3,0.62,0.32, legM),0,-0.31,0)); L.add(this.at(this.box(0.32,0.14,0.34, dark),0,-0.58,0)); g.add(L); legs.push(L); return L; };
+    mk(-0.34,0.6); mk(0.34,0.6); mk(-0.34,-0.6); mk(0.34,-0.6);
+    g.userData.gait=1.0; g.userData.moving=true;
+    g.userData.setGait=(run)=>{ g.userData.gait = run?2.0:1.0; };
+    g.userData.update=(t)=>{ const sp=g.userData.gait, amp=0.5*sp, w=t*5.2*sp;
+      if(g.userData.moving){ legs[0].rotation.x=Math.sin(w)*amp; legs[3].rotation.x=Math.sin(w)*amp;
+        legs[1].rotation.x=Math.sin(w+Math.PI)*amp; legs[2].rotation.x=Math.sin(w+Math.PI)*amp;
+        body.position.y=1.0+Math.abs(Math.sin(w))*0.05*sp; head.position.y=1.05+Math.sin(w)*0.03;
+      } else { legs.forEach(l=>l.rotation.x*=0.85); } };
+    return g;
+  }
+  makePigMountFP() { // pig body as seen from the saddle — attaches to the camera, sits below your weapon (you keep your arms/gun)
+    const g=new THREE.Group();
+    const pink=new THREE.MeshStandardMaterial({color:0xeca0bb,roughness:0.92,emissive:0x582636,emissiveIntensity:0.3});
+    const snoutM=new THREE.MeshStandardMaterial({color:0xe890a8,roughness:0.92,emissive:0x582636,emissiveIntensity:0.26});
+    const dark=this.mat(0x6e3146,0.9,0);
+    const ml=new THREE.PointLight(0xffeef4,0.5,7,2); ml.position.set(0,0.3,-1.1); g.add(ml);
+    g.add(this.at(this.box(1.15,0.4,0.9, pink),0,-1.2,-0.25));
+    g.add(this.at(this.box(1.22,0.16,0.85, this.mat(0x7a4326,0.8,0)),0,-0.96,-0.24));
+    [-0.6,0.6].forEach(x=> g.add(this.at(this.box(0.15,0.46,0.46, this.mat(0x5a3320,0.85,0)), x,-1.12,-0.26)));
+    const neck=this.box(0.58,0.52,0.66, pink); neck.position.set(0,-1.08,-0.92); neck.rotation.x=0.5; g.add(neck);
+    const head=new THREE.Group(); head.position.set(0,-0.84,-1.42); g.add(head);
+    head.add(this.box(0.86,0.72,0.7, pink));
+    head.add(this.at(this.box(0.52,0.4,0.22, snoutM),0,-0.1,-0.44));
+    [-0.14,0.14].forEach(x=> head.add(this.at(this.box(0.12,0.13,0.08, dark), x,-0.04,-0.5)));
+    [-0.34,0.34].forEach(x=> head.add(this.at(this.box(0.26,0.34,0.14, pink), x,0.5,0.0)));
+    [-0.2,0.2].forEach(x=> head.add(this.at(this.box(0.12,0.12,0.06, dark), x,0.12,0.34)));
+    [-1,1].forEach(s=> g.add(this.at(this.box(0.32,0.3,0.9, this.mat(0x39432f,0.9,0)), s*0.5,-1.1,-0.06)));
+    g.userData.head=head;
+    g.scale.setScalar(0.62); g.position.y=-0.5;
+    g.userData.update=(t)=>{ const w=t*5.6; head.position.y=-0.84+Math.sin(w)*0.05; head.rotation.x=Math.sin(w*0.5)*0.04; g.position.y=-0.5+Math.abs(Math.sin(w))*0.03; };
+    return g;
+  }
   makeHeldItem(id){ // small first-person held block for the lower-right of the view
     if(!id) return null;
     const blockIds=['stone','wood','plank','glass','dirt','grass','obsidian','brick','diamondblock','leaves','cobblestone','door'];

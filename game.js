@@ -150,6 +150,8 @@ const colliders = [];      // {x,z,r} cylinder colliders for props (cheap)
 const oreBlocks = [];      // minable Minecraft ore blocks {grp,x,y,z,r,hp,maxhp,reward,kind,glow,alive,respawn}
 const worldAnims = [];     // per-frame update() callbacks for compound props (cave, giant tree, villagers)
 let giantTree = null, megaGate = null, round25Gate = null;
+let pigFP = null;                      // first-person pig viewmodel (attached to camera while mounted)
+const PIG_COST = 2000;
 const interactables = [];  // stations/buys/gates/door
 const pointLights = [];    // capped flickering lights {light, base, ph}
 
@@ -216,6 +218,7 @@ function buildWorld(){
   buildTowerInterior();
   buildBoundaryAndForest();
   buildStations();
+  buildVendor();                                       // pig (+ car later) vendor at the camp
   buildRoot = scene;                                   // back to world space
 
   // ════════ MINECRAFT COMPOUND + road + gates (world-anchored) ════════
@@ -300,6 +303,26 @@ function buildCompoundRoad(){
   KIT.shadow(r25); scene.add(r25); round25Gate={grp:r25, cleared:false};
   colliders.push({x:cx, z:cz, r:7, gate:{get open(){ return round25Gate.cleared; }}});  // solid until the giga boss dies
   worldAnims.push((t)=>{ portal.material.opacity=0.55+Math.sin(t*3)*0.2; pl.intensity=1.0+Math.sin(t*3)*0.4; });
+}
+
+// ════════ PIG MOUNT — buy from the camp vendor, press V to ride (+50% speed, keep your gun) ════════
+function buildVendor(){ // camp-local coords (added to campGroup); placed by the south spawn hub
+  const vx=15, vz=44;
+  const pig=KIT.makePig(); pig.position.set(vx,0,vz); pig.rotation.y=-0.6; pig.userData.moving=false; KIT.shadow(pig); buildRoot.add(pig);
+  if(pig.userData.update) worldAnims.push(pig.userData.update);
+  const vill=KIT.makeVillager(); vill.scale.setScalar(0.9); vill.position.set(vx-2.6,0,vz+1.6); vill.rotation.y=1.3; KIT.shadow(vill); buildRoot.add(vill);
+  if(vill.userData.update) worldAnims.push(vill.userData.update);
+  const sign=new T.Mesh(new T.PlaneGeometry(4.2,1.1), new T.MeshBasicMaterial({map:KIT.label('🐷 PIG MOUNT','#ffd0e0'),transparent:true})); sign.position.set(vx,2.6,vz); buildRoot.add(sign);
+  addInteractable({ x:vx, z:vz, collide:1.3, type:'vendor',
+    label:()=> G.ownsPig ? {key:'V', txt:'Ride Pig (V)', cost:0} : {key:'F', txt:'Buy Pig Mount', cost:PIG_COST},
+    run:()=>{ if(G.ownsPig){ toggleMount(); return true; }
+      if(!spend(PIG_COST)) return false; G.ownsPig=true; if(AU&&AU.power)AU.power(); toast('PIG MOUNT PURCHASED','press V to ride / dismount','#ffb0c8'); return true; } });
+}
+function toggleMount(){
+  if(!G.ownsPig){ toast('NO PIG','buy the pig mount from the camp vendor','#ffb0c8'); return; }
+  G.mounted=!G.mounted;
+  if(G.mounted){ if(!pigFP) pigFP=KIT.makePigMountFP(); camera.add(pigFP); pigFP.visible=true; if(AU&&AU.buy)AU.buy(); toast('🐷 MOUNTED','+50% SPEED · shoot while riding','#ffb0c8'); }
+  else { if(pigFP) camera.remove(pigFP); if(AU&&AU.buy)AU.buy(); toast('DISMOUNTED','','#ffb0c8'); }
 }
 
 function buildTower(){
@@ -1644,7 +1667,8 @@ function hurtPlayer(n){
 function updatePlayer(dt){
   // look already applied on mousemove; here do movement + gravity + collision
   const sprint = G.keys['shift'] && !G.keys['s'];
-  const baseSpeed = (sprint?8.6:5.6) * (G.perks.has('rootbeer')?1.25:1);   // Rootbeer Meth: faster legs
+  const baseSpeed = (sprint?8.6:5.6) * (G.perks.has('rootbeer')?1.25:1) * (G.mounted?1.5:1);   // Rootbeer Meth + pig mount (+50%)
+  if(G.mounted && pigFP && pigFP.userData.update) pigFP.userData.update(clock.elapsedTime);
   // forward/right from yaw
   _fwd.set(Math.sin(G.yaw),0,Math.cos(G.yaw));
   _right.set(Math.cos(G.yaw),0,-Math.sin(G.yaw));
@@ -2188,6 +2212,7 @@ function bindInput(){
     if(G.phase!=='play') return;
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
+    if(k==='v') toggleMount();
     if(k==='f') doInteract();
     if(k==='1') hotSelect(0);
     if(k==='2') hotSelect(1);
@@ -2252,6 +2277,7 @@ function resetRun(){
   G.aliveCount=0; G.bossActive=false; G.megaActive=false; G.megaDefeated=false; G.roundActive=false; G.intermission=0;
   G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false; G.monkeyWave=0; G.monkeyTimer=0;
   G.minecraftMode=false; { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
+  G.ownsPig=false; G.mounted=false; if(pigFP && camera){ camera.remove(pigFP); }   // clear pig mount on reset
   // clear any placed build blocks from a previous run
   if(typeof placedBlocks!=='undefined'){ for(const b of Array.from(placedBlocks.values())) removePlacedBlock(b,false); }
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
