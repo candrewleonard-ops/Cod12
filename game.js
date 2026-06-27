@@ -248,7 +248,7 @@ function buildCompound(){
   [[40,40,0],[70,46,0.7],[44,72,1.4],[72,76,2.1]].forEach(([hx,hz,ry])=>{ const h=KIT.makeHouse(); h.position.set(hx,0,hz); h.rotation.y=ry; KIT.shadow(h); scene.add(h); colliders.push({x:hx,z:hz,r:3.2}); });
   // ── giant climbable tree ──
   giantTree=KIT.makeGiantTree(); giantTree.position.set(56,0,56); KIT.shadow(giantTree); scene.add(giantTree);
-  if(giantTree.userData.update) worldAnims.push(giantTree.userData.update); colliders.push({x:56,z:56,r:6.5});
+  if(giantTree.userData.update) worldAnims.push(giantTree.userData.update); colliders.push({x:56,z:56,r:4.5});  // thinner trunk hitbox so the ladder (r5.4) is reachable
   // ── villagers (big chungus) ──
   [[50,48],[60,52],[52,62]].forEach(p=>{ const v=KIT.makeChungus(); v.scale.setScalar(0.8); v.position.set(p[0],0,p[1]); KIT.shadow(v); scene.add(v); if(v.userData.update) worldAnims.push(v.userData.update); });
   // ── GIANT DOUBLE PYRAMID on steel supports (kit landmark at 12,80; walk under it) ──
@@ -564,6 +564,8 @@ function groundPlusBlocks(base,x,z,cap){ // stand on top of placed build blocks
   const bt=blockTopColumn(x,z,cap); return bt>base?bt:base; }
 function groundHeightAt(x,z, refY){
   if(G.inSkyRoom) return SRY;                                // standing on the sky-room floor
+  // giant-tree rooftop deck (only when already up high, so you can't stand on it from the ground)
+  if((refY||0)>80 && Math.abs(x-56)<15 && Math.abs(z-56)<15) return 94;
   const lx=x-CAMP_X, lz=z-CAMP_Z;                            // tower/stairs are CAMP-LOCAL
   if(Math.abs(lx)>=TOWER_H || Math.abs(lz)>=TOWER_H) return groundPlusBlocks(0,x,z,(refY||0)+STEP_UP); // outside tower → open ground (+ build blocks)
   refY=refY||0;
@@ -1811,6 +1813,12 @@ function updatePlayer(dt){
   if(G.keys['d']){ mx+=_right.x; mz+=_right.z; }
   const ml=Math.hypot(mx,mz); if(ml>0){ mx/=ml; mz/=ml; }
   const oldx=camera.position.x, oldz=camera.position.z;
+  // ── GIANT-TREE LADDER: at the base, W climbs up / S climbs down (suppress walking while climbing) ──
+  const ladDX=oldx-56, ladDZ=oldz-61.4; const atLadder=(ladDX*ladDX+ladDZ*ladDZ)<6.25;
+  let climbIntent=false;
+  if(atLadder && (G.keys['w']||G.keys['s'])){ const up=G.keys['w']&&!G.keys['s'];
+    if((up && G.eyeY<94+EYE-0.05) || (!up && G.eyeY>EYE+0.05)){ climbIntent=true; mx=0; mz=0; } }
+  if(!atLadder) G._ladderHint=false;
   let nx, nz;
   if(G.driving){
     // arcade car: A/D steer (rotate heading), W/S throttle along facing, momentum + friction
@@ -1840,8 +1848,14 @@ function updatePlayer(dt){
   // the ground check — that feedback used to make the view micro-bounce while walking.
   const gh=groundHeightAt(camera.position.x, camera.position.z, G.footY||0);
   const floorY=gh+EYE;
-  G.vy-=GRAV*dt; G.eyeY+=G.vy*dt;
-  if(G.eyeY<=floorY){ G.eyeY=floorY; G.vy=0; G.onGround=true; G.footY=gh; } else G.onGround=false;
+  if(climbIntent){ const up=G.keys['w']&&!G.keys['s']; G.climbing=true;
+    G.eyeY=Math.max(EYE, Math.min(94+EYE, G.eyeY+(up?1:-1)*16*dt)); G.footY=G.eyeY-EYE; G.vy=0; G.onGround=false;
+    if(!G._ladderHint){ G._ladderHint=true; toast('CLIMBING','W up · S down','#9fd0ff'); }
+  } else {
+    G.climbing=false;
+    G.vy-=GRAV*dt; G.eyeY+=G.vy*dt;
+    if(G.eyeY<=floorY){ G.eyeY=floorY; G.vy=0; G.onGround=true; G.footY=gh; } else G.onGround=false;
+  }
   // head bob is a VISUAL offset only — applied to the camera, never to the physics height
   let bob=0;
   if(ml>0 && G.onGround) bob=Math.sin(clock.elapsedTime*(sprint?16:11))*(sprint?0.05:0.035);
