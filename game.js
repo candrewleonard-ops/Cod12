@@ -1069,13 +1069,15 @@ function spawnPositionNearPlayer(){
 function spawnZombie(kind){
   if(kind===true) kind='c'; if(!kind) kind='z';      // back-compat: spawnZombie(true) → crawler
   // resolve a free pool entry (villager<->z interchangeable; crawler/saiyan/monkey stay bounded)
-  let e = zombies.find(z=>!z.alive && z.kind===kind);
-  if(!e && kind==='z')        e = zombies.find(z=>!z.alive && z.kind==='villager');
-  if(!e && kind==='villager') e = zombies.find(z=>!z.alive && z.kind==='z');
+  // — skip entries still ragdolling (z.dying) so a corpse isn't reused mid-despawn
+  let e = zombies.find(z=>!z.alive && !z.dying && z.kind===kind);
+  if(!e && kind==='z')        e = zombies.find(z=>!z.alive && !z.dying && z.kind==='villager');
+  if(!e && kind==='villager') e = zombies.find(z=>!z.alive && !z.dying && z.kind==='z');
   if(!e) return false;                               // that pool is exhausted → skip this spawn
   const k=e.kind;
   const [x,z,baseY,zone]=pickSpawn();
   e.zone=zone||'outside'; e.baseY=baseY||0;
+  e.grp.rotation.x=0; e.grp.rotation.z=0;            // clear any leftover ragdoll tilt
   e.grp.position.set(x,e.baseY,z); e.grp.scale.setScalar(0.01); e.grp.visible=true;
   e.alive=true; e.dieT=0; e.riseT=0; e.atkCd=0;
   if(e.grp.userData.resetHead) e.grp.userData.resetHead();   // restore a head popped last life
@@ -1363,10 +1365,12 @@ function damageEnemy(e, dmg, head, bearingDeg, melee){
   if(lethal){ killEnemy(e, head, melee); }
 }
 function killEnemy(e, head, melee){
-  e.alive=false; e.grp.visible=false; G.aliveCount--;
+  e.alive=false; G.aliveCount--;                          // dead → no longer a threat / round counts it
   G.kills++; addPoints(melee?130:(head?100:60));
   feedDogs(e.grp.position.x, e.grp.position.z, e.zone);   // feed a nearby wall dog
   if(Math.random()<0.04 + (G.round>3?0.02:0)) spawnDrop(e.grp.position.x, e.grp.position.z);
+  // RAGDOLL: keep the corpse, topple it, despawn after 3s (so head-pops are actually visible)
+  e.dying=true; e.dieT=clock.elapsedTime; e.toppleDir=(Math.random()<0.5?-1:1)*(1.2+Math.random()*0.35);
   checkRoundProgress();
 }
 function damageBoss(dmg){ if(!boss||!boss.userData.alive) return; boss.userData.hp-=dmg;
@@ -1716,7 +1720,18 @@ function steerDir(e, ox, oz, dirx, dirz, rad, zone){
 }
 function updateEnemies(dt){
   const players=getPlayers(), et=clock.elapsedTime;
-  for(let i=0;i<zombies.length;i++){ const e=zombies[i]; if(!e.alive) continue;
+  for(let i=0;i<zombies.length;i++){ const e=zombies[i];
+    if(e.dying){ // RAGDOLL: topple to the ground, let the head-pop play, despawn after 3s
+      const td=et-e.dieT;
+      e.grp.rotation.x += (e.toppleDir*1.45 - e.grp.rotation.x)*Math.min(1,dt*5);   // fall over
+      e.grp.position.y = e.baseY;
+      const sink=Math.min(0.35, td*0.25); e.grp.position.y = e.baseY - sink;        // settle slightly
+      if(e.grp.userData.update) e.grp.userData.update(et);                           // plays the flying-head arc
+      if(td>=3){ e.dying=false; e.grp.visible=false; e.grp.rotation.x=0; e.grp.position.y=e.baseY;
+        if(e.grp.userData.resetHead) e.grp.userData.resetHead(); }                  // free for pool reuse
+      continue;
+    }
+    if(!e.alive) continue;
     // rise-in scale
     if(e.grp.scale.x<1){ e.grp.scale.setScalar(Math.min(1, e.grp.scale.x+dt*3)); }
     const tgt=nearestPlayer(e.grp.position.x, e.grp.position.z, players);
@@ -2406,7 +2421,7 @@ function lockMouse(){ renderer.domElement.requestPointerLock&&renderer.domElemen
 /* ════════════════════ GAME FLOW ════════════════════ */
 function resetRun(){
   // clear enemies
-  for(const e of zombies){ e.alive=false; e.grp.visible=false; }
+  for(const e of zombies){ e.alive=false; e.dying=false; e.grp.visible=false; e.grp.rotation.x=0; e.grp.rotation.z=0; if(e.grp.userData.resetHead) e.grp.userData.resetHead(); }
   if(boss){ boss.userData.alive=false; boss.visible=false; }
   if(mega){ mega.userData.alive=false; mega.visible=false; }
   for(const d of drops){ scene.remove(d.grp); } drops.length=0;
