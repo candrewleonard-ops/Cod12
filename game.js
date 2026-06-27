@@ -223,6 +223,7 @@ function buildWorld(){
 
   // ════════ MINECRAFT COMPOUND + road + gates (world-anchored) ════════
   buildCompound();
+  buildSkyRoom();                                      // hidden easter-egg room far up in the sky
 }
 
 // The walled Minecraft compound: rocky walls (south gap), cave, village, giant tree,
@@ -368,6 +369,49 @@ function toggleDrive(){
   else { if(carPOV) camera.remove(carPOV); if(arms) arms.visible=true; if(G._parkedCar) G._parkedCar.visible=true; if(AU&&AU.buy)AU.buy(); toast('PARKED','','#bfe0ff'); }
 }
 
+// ════════ SKY ROOM — dwell 12s in the nether portal to teleport here (easter egg) ════════
+const SRX=300, SRY=220, SRZ=300, SRW=48, SRH=40;   // far-up isolated black box
+let skyRoom=null;
+function buildSkyRoom(){
+  const r=new T.Group(); r.position.set(SRX,SRY,SRZ); scene.add(r); skyRoom=r;
+  const blackO=KIT.mat(0x070709,0.85,0.05), blackI=KIT.mat(0x0e0e14,0.9,0);
+  r.add(KIT.at(KIT.box(SRW,1.5,SRW,blackI),0,-0.75,0));                     // floor (top at local y=0)
+  r.add(KIT.at(KIT.box(SRW,1.5,SRW,blackO),0,SRH,0));                       // ceiling
+  r.add(KIT.at(KIT.box(SRW-6,0.05,SRW-6,KIT.glow(0x2a1840,0.5)),0,0.06,0)); // floor glow
+  [[0,-SRW/2,SRW,1.5],[0,SRW/2,SRW,1.5],[-SRW/2,0,1.5,SRW],[SRW/2,0,1.5,SRW]].forEach(w=> r.add(KIT.at(KIT.box(w[2],SRH,w[3],blackO),w[0],SRH/2,w[1])));
+  // arrival pad + light
+  r.add(KIT.at(new T.Mesh(new T.CylinderGeometry(3.2,3.2,0.2,32),KIT.glow(0xb24bff,1.2)),0,0.14,8));
+  const padL=new T.PointLight(0xb24bff,1.0,30); padL.position.set(0,4,8); r.add(padL);
+  worldAnims.push((t)=>{ padL.intensity=0.8+Math.sin(t*3)*0.4; });
+  // hidden messages (readable only inside, looking around)
+  const addMsg=(x,y,z,ry,text,col)=>{ const m=new T.Mesh(new T.PlaneGeometry(20,5), new T.MeshBasicMaterial({map:KIT.label(text,col),transparent:true,depthWrite:false})); m.position.set(x,y,z); m.rotation.y=ry; r.add(m); };
+  addMsg(0,22,-SRW/2+1.2,0,'THE PINGAS SEES ALL','#ff66cc');
+  addMsg(0,26,-SRW/2+1.2,0,'YOU WERE NEVER MEANT TO LEAVE','#7df0ff');
+  addMsg(SRW/2-1.2,18,0,-Math.PI/2,'SUPER · PACK · A · PINGAS','#ff66cc');
+  // SUPER PACK-A-PINGAS machine (interact = super-upgrade your held gun)
+  const sm=new T.Group(); sm.position.set(0,0,-14); r.add(sm);
+  sm.add(KIT.at(KIT.box(3,4.6,1.7,KIT.mat(0x140a20,0.5,0.35)),0,2.3,0));
+  sm.add(KIT.at(KIT.box(3.25,0.5,1.85,KIT.mat(0xd8a93a,0.4,0.6)),0,4.7,0));
+  sm.add(KIT.at(KIT.box(2.5,1.8,0.25,KIT.glow(0xffd24a,0.5)),0,3.0,0.78));
+  const lbl=new T.Mesh(new T.PlaneGeometry(2.7,0.9), new T.MeshBasicMaterial({map:KIT.labelLines(['SUPER','PACK·A·PINGAS'],'#ffd24a'),transparent:true})); lbl.position.set(0,4.2,0.95); sm.add(lbl);
+  const spot=new T.SpotLight(0xffd24a,1.4,80,0.7,0.5); spot.position.set(SRX,SRY+SRH-6,SRZ-4); spot.target.position.set(SRX,SRY+4,SRZ-14); scene.add(spot); scene.add(spot.target);
+  // interactables (world coords; nothing else lives at x≈300 so no false triggers)
+  addInteractable({ x:SRX, z:SRZ-14, collide:0, type:'superpingas',
+    label:()=> ({key:'F', txt:'SUPER PACK-A-PINGAS (free)', cost:0}),
+    run:()=>{ const w=curW(); if(!w||w.superUpgrade){ toast('ALREADY SUPER','','#ffd24a'); return false; } applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } });
+  addInteractable({ x:SRX, z:SRZ+8, collide:0, type:'skyexit',
+    label:()=> ({key:'F', txt:'Return to the world', cost:0}),
+    run:()=>{ exitSkyRoom(); return true; } });
+}
+function enterSkyRoom(){ if(G.inSkyRoom) return; G.skyReturn={x:camera.position.x, z:camera.position.z};
+  G.inSkyRoom=true; G.portalDwell=0; if(G.driving) toggleDrive(); if(G.mounted) toggleMount();
+  camera.position.set(SRX, SRY+EYE, SRZ+8); G.eyeY=SRY+EYE; G.footY=SRY; G.vy=0;
+  AU&&AU.power&&AU.power(); toast('🌀 THE SKY ROOM','dwelled into the portal · F to return','#b24bff'); }
+function exitSkyRoom(){ if(!G.inSkyRoom) return; G.inSkyRoom=false;
+  const rp=G.skyReturn||{x:round25Gate?round25Gate.x:CAMP_X, z:round25Gate?round25Gate.z+10:CAMP_Z};
+  camera.position.set(rp.x, EYE, rp.z); G.eyeY=EYE; G.footY=0; G.vy=0; G.portalDwell=0;
+  AU&&AU.buy&&AU.buy(); toast('RETURNED','','#b24bff'); }
+
 function buildTower(){
   const wallMat=new T.MeshStandardMaterial({color:0x22262b,roughness:0.96,metalness:0.05});
   const bandMat=new T.MeshStandardMaterial({color:0x171b1f,roughness:0.9,metalness:0.1});
@@ -511,6 +555,7 @@ function groundPlusBlocks(base,x,z,cap){ // stand on top of placed build blocks
   if(typeof placedBlocks==='undefined' || !placedBlocks.size) return base;
   const bt=blockTopColumn(x,z,cap); return bt>base?bt:base; }
 function groundHeightAt(x,z, refY){
+  if(G.inSkyRoom) return SRY;                                // standing on the sky-room floor
   const lx=x-CAMP_X, lz=z-CAMP_Z;                            // tower/stairs are CAMP-LOCAL
   if(Math.abs(lx)>=TOWER_H || Math.abs(lz)>=TOWER_H) return groundPlusBlocks(0,x,z,(refY||0)+STEP_UP); // outside tower → open ground (+ build blocks)
   refY=refY||0;
@@ -1528,6 +1573,8 @@ function pickEnemyKind(){
 
 /* ════════════════════ ENEMY AI (fixed-step) ════════════════════ */
 function clampArena(x,z, rad, isPlayer, playerY){
+  if(isPlayer && G.inSkyRoom){ const m=SRW/2-1.2;          // keep the player inside the sky-room walls
+    x=Math.max(SRX-m,Math.min(SRX+m,x)); z=Math.max(SRZ-m,Math.min(SRZ+m,z)); _v3.set(x,0,z); return _v3; }
   // square WORLD boundary (the big 300×300 arena)
   const lim=WB-2;
   if(x>lim) x=lim; else if(x<-lim) x=-lim;
@@ -2339,6 +2386,7 @@ function resetRun(){
   G.minecraftMode=false; { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
   G.ownsPig=false; G.mounted=false; if(pigFP && camera){ camera.remove(pigFP); }   // clear pig mount on reset
   G.ownsCar=false; G.driving=false; G.carVel=null; if(carPOV && camera){ camera.remove(carPOV); }   // clear car on reset
+  G.inSkyRoom=false; G.portalDwell=0;   // clear sky-room state on reset
   // clear any placed build blocks from a previous run
   if(typeof placedBlocks!=='undefined'){ for(const b of Array.from(placedBlocks.values())) removePlacedBlock(b,false); }
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
@@ -2444,6 +2492,14 @@ function simStep(dt){
   { const et=clock.elapsedTime; for(let i=0;i<worldAnims.length;i++) worldAnims[i](et); }  // compound props
   directorTick(dt);
   updateInteraction();
+  // nether-portal dwell → Sky Room (stand in the round-25 portal ~12s)
+  if(round25Gate && !G.inSkyRoom){
+    const pd=Math.hypot(camera.position.x-round25Gate.x, camera.position.z-round25Gate.z);
+    if(pd<8){ const was=G.portalDwell||0; G.portalDwell=was+dt;
+      if(was<12 && G.portalDwell>=12){ enterSkyRoom(); }
+      else { const sec=Math.ceil(12-G.portalDwell); const ws=Math.ceil(12-was); if(sec!==ws && sec>0 && sec<=12) toast('THE PORTAL HUMS…', sec+'s', '#b24bff'); }
+    } else G.portalDwell=0;
+  }
   // expire powerup timers
   if(G.instaKill>0 && clock.elapsedTime>G.instaKill) G.instaKill=0;
   if(G.fireRateBuff>0 && clock.elapsedTime>G.fireRateBuff) G.fireRateBuff=0;
