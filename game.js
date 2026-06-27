@@ -1088,7 +1088,14 @@ function spawnZombie(kind){
   let hp = Math.round((e.isCrawler?70:100) * (1 + r*0.18)) + (e.isCrawler?0:r*4);
   let speed = (e.isCrawler?3.4:2.0) + Math.min(2.4, r*0.12) + Math.random()*0.4;
   let dmg = e.isCrawler?8:14;
-  if(k==='saiyan'){ hp*=20; speed*=1.75; dmg*=2; }            // rare elite
+  // SPRINTERS: from round 6, standing walkers (NOT crawlers, saiyans, or monkeys) can sprint —
+  // 5% chance at round 6, +2% each round up to 100%. Speed sits just under the player's walk so
+  // you can still outrun them by sprinting.
+  e.isSprinter = false;
+  if(!e.isCrawler && k!=='saiyan' && k!=='monkey' && r>=6 && Math.random() < Math.min(1, 0.05 + (r-6)*0.02)){
+    e.isSprinter = true; speed = 5.0 + Math.min(0.5, (r-6)*0.02);   // ~5.0–5.5 (player walk = 5.6)
+  }
+  if(k==='saiyan'){ hp*=20; speed*=1.75; dmg*=2; }            // rare elite (never a sprinter)
   else if(k==='monkey'){ hp=Math.round(hp*2.2); speed*=1.3; dmg=20; }
   e.hp=hp; e.speed=speed; e.dmg=dmg;
   G.aliveCount++;
@@ -1738,7 +1745,7 @@ function updateEnemies(dt){
       else if((e.noProg=(e.noProg||0)+dt) > 9){ const s=pickSpawn(); e.zone=s[3]||'outside'; e.baseY=s[2]||0; e.grp.position.set(s[0],e.baseY,s[1]); e.noProg=0; e.bestDist=1e9; } }
     else { e.noProg=0; e.bestDist=0; }
     e.grp.position.y=e.baseY;                 // sit on this zone's floor (ground or roof)
-    if(e.anim) e.anim(et + i); // shamble (kit closure)
+    if(e.anim) e.anim((e.isSprinter? et*1.8 : et) + i); // shamble (sprinters churn faster → read as running)
   }
   // mini-boss (greedy seek + the same wall-follow so it can't wedge on the tower/props)
   if(boss && boss.userData.alive){ if(boss.scale.x<0.46) boss.scale.setScalar(Math.min(0.46,boss.scale.x+dt*0.6));
