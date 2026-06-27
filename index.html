@@ -170,6 +170,13 @@
   .hslot .hnum{position:absolute; left:2px; top:0; font-size:10px; color:#6f819f}
   .mcBlk.gunChip{display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#2a3344,#161c28); box-shadow:inset 0 0 0 2px #44608a}
   .mcBlk.gunChip span{font-size:9px; font-weight:700; color:#9fd0ff; letter-spacing:1px}
+  /* sniper scope */
+  #scope{position:absolute; inset:0; z-index:24; pointer-events:none;
+    background:radial-gradient(circle at 50% 50%, transparent 0, transparent 31%, rgba(0,0,0,0.55) 33%, #000 40%);}
+  #scope.hidden{display:none}
+  #scope .scopeV{position:absolute; left:50%; top:8%; bottom:8%; width:1px; background:rgba(0,0,0,0.7); transform:translateX(-0.5px)}
+  #scope .scopeH{position:absolute; top:50%; left:8%; right:8%; height:1px; background:rgba(0,0,0,0.7); transform:translateY(-0.5px)}
+  #scope .scopeDot{position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px 0 0 -2.5px; border-radius:50%; background:#ff3b3b; box-shadow:0 0 6px #ff3b3b}
   .mcBlk{position:absolute; inset:5px; border-radius:1px; box-shadow:inset -4px -4px 0 rgba(0,0,0,.35), inset 4px 4px 0 rgba(255,255,255,.12)}
   .mcBlk[data-t="cobblestone"]{background:#8a8a8f} .mcBlk[data-t="wood"]{background:#6b4a28} .mcBlk[data-t="plank"]{background:#9c7a48}
   .mcBlk[data-t="coal"]{background:#8a8a8f; background-image:radial-gradient(#16161a 26%,transparent 27%); background-size:14px 14px; background-position:2px 3px}
@@ -283,6 +290,8 @@
       <div class="hslot" data-hotslot="4"><div class="hicon"></div><div class="hcount"></div><div class="hnum">5</div></div>
     </div>
     <div id="mcHeld" class="hidden"></div>
+    <!-- sniper scope overlay (shown at full sniper zoom) -->
+    <div id="scope" class="hidden"><div class="scopeV"></div><div class="scopeH"></div><div class="scopeDot"></div></div>
   </div>
 
   <!-- LOADING -->

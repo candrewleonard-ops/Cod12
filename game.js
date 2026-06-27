@@ -2325,6 +2325,12 @@ function updateCameraZoom(){
   }
   camera.fov+=(targetFov-camera.fov)*0.15;
   camera.updateProjectionMatrix();
+  // sniper scope: at near-full zoom, show the circular scope overlay + hide the viewmodel
+  const scoped = w && w.type==='sniper' && G.rightMouseDown && camera.fov < 34;
+  const sc=$('scope'); if(sc) sc.classList.toggle('hidden', !scoped);
+  if(scoped){ if(arms) arms.visible=false; if(heldHandMesh) heldHandMesh.visible=false; }
+  else if(G._wasScoped){ if(arms) arms.visible=true; if(heldHandMesh) heldHandMesh.visible=true; }
+  G._wasScoped=scoped;
 }
 
 /* ════════════════════ MAIN LOOP (one rAF, fixed timestep) ════════════════════ */
