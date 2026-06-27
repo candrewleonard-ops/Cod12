@@ -150,8 +150,8 @@ const colliders = [];      // {x,z,r} cylinder colliders for props (cheap)
 const oreBlocks = [];      // minable Minecraft ore blocks {grp,x,y,z,r,hp,maxhp,reward,kind,glow,alive,respawn}
 const worldAnims = [];     // per-frame update() callbacks for compound props (cave, giant tree, villagers)
 let giantTree = null, megaGate = null, round25Gate = null;
-let pigFP = null;                      // first-person pig viewmodel (attached to camera while mounted)
-const PIG_COST = 2000;
+let pigFP = null, carPOV = null;       // first-person mount/drive viewmodels (attached to camera)
+const PIG_COST = 2000, CAR_COST = 4000;
 const interactables = [];  // stations/buys/gates/door
 const pointLights = [];    // capped flickering lights {light, base, ph}
 
@@ -317,12 +317,30 @@ function buildVendor(){ // camp-local coords (added to campGroup); placed by the
     label:()=> G.ownsPig ? {key:'V', txt:'Ride Pig (V)', cost:0} : {key:'F', txt:'Buy Pig Mount', cost:PIG_COST},
     run:()=>{ if(G.ownsPig){ toggleMount(); return true; }
       if(!spend(PIG_COST)) return false; G.ownsPig=true; if(AU&&AU.power)AU.power(); toast('PIG MOUNT PURCHASED','press V to ride / dismount','#ffb0c8'); return true; } });
+  // a parked car you can buy (B to drive)
+  const cx=vx+8, cz=vz+1;
+  const car=KIT.makeCar('sedan'); car.position.set(cx,0,cz); car.rotation.y=Math.PI*0.5; KIT.shadow(car); buildRoot.add(car);
+  if(car.userData.update) worldAnims.push(car.userData.update); G._parkedCar=car;
+  const csign=new T.Mesh(new T.PlaneGeometry(3.6,1.0), new T.MeshBasicMaterial({map:KIT.label('🚗 CAR','#bfe0ff'),transparent:true})); csign.position.set(cx,2.4,cz); buildRoot.add(csign);
+  addInteractable({ x:cx, z:cz, collide:2.4, type:'cardealer',
+    label:()=> G.ownsCar ? {key:'B', txt:'Drive (B)', cost:0} : {key:'F', txt:'Buy Car', cost:CAR_COST},
+    run:()=>{ if(G.ownsCar){ toggleDrive(); return true; }
+      if(!spend(CAR_COST)) return false; G.ownsCar=true; if(AU&&AU.power)AU.power(); toast('CAR PURCHASED','press B to drive · W/S throttle · A/D steer','#bfe0ff'); return true; } });
 }
 function toggleMount(){
   if(!G.ownsPig){ toast('NO PIG','buy the pig mount from the camp vendor','#ffb0c8'); return; }
   G.mounted=!G.mounted;
   if(G.mounted){ if(!pigFP) pigFP=KIT.makePigMountFP(); camera.add(pigFP); pigFP.visible=true; if(AU&&AU.buy)AU.buy(); toast('🐷 MOUNTED','+50% SPEED · shoot while riding','#ffb0c8'); }
   else { if(pigFP) camera.remove(pigFP); if(AU&&AU.buy)AU.buy(); toast('DISMOUNTED','','#ffb0c8'); }
+}
+function toggleDrive(){
+  if(!G.ownsCar){ toast('NO CAR','buy a car from the camp vendor','#bfe0ff'); return; }
+  if(G.mounted) toggleMount();                                // can't ride the pig and drive at once
+  G.driving=!G.driving;
+  if(G.driving){ if(!carPOV) carPOV=KIT.makeCarPOV(); camera.add(carPOV); carPOV.visible=true; G.carVel=new T.Vector3();
+    if(arms) arms.visible=false; if(heldHandMesh) heldHandMesh.visible=false;
+    if(G._parkedCar) G._parkedCar.visible=false; if(AU&&AU.power)AU.power(); toast('🚗 DRIVING','W/S throttle · A/D steer · B to exit','#bfe0ff'); }
+  else { if(carPOV) camera.remove(carPOV); if(arms) arms.visible=true; if(G._parkedCar) G._parkedCar.visible=true; if(AU&&AU.buy)AU.buy(); toast('PARKED','','#bfe0ff'); }
 }
 
 function buildTower(){
@@ -1679,8 +1697,24 @@ function updatePlayer(dt){
   if(G.keys['d']){ mx+=_right.x; mz+=_right.z; }
   const ml=Math.hypot(mx,mz); if(ml>0){ mx/=ml; mz/=ml; }
   const oldx=camera.position.x, oldz=camera.position.z;
-  const nx=oldx + mx*baseSpeed*dt;
-  const nz=oldz + mz*baseSpeed*dt;
+  let nx, nz;
+  if(G.driving){
+    // arcade car: A/D steer (rotate heading), W/S throttle along facing, momentum + friction
+    const steer=(G.keys['a']?1:0)-(G.keys['d']?1:0), throttle=(G.keys['w']?1:0)-(G.keys['s']?1:0);
+    if(!G.carVel) G.carVel=new T.Vector3();
+    let spd0=Math.hypot(G.carVel.x,G.carVel.z);
+    G.yaw += steer*1.7*dt*Math.min(1, spd0/3);              // steering bites once you're rolling
+    const fx=-Math.sin(G.yaw), fz=-Math.cos(G.yaw);          // "forward" (W) direction
+    const ACC=30, MAXV=20, FR=0.96;
+    G.carVel.x += fx*throttle*ACC*dt; G.carVel.z += fz*throttle*ACC*dt;
+    G.carVel.multiplyScalar(FR);
+    let spd=Math.hypot(G.carVel.x,G.carVel.z); if(spd>MAXV){ G.carVel.x*=MAXV/spd; G.carVel.z*=MAXV/spd; spd=MAXV; }
+    nx=oldx+G.carVel.x*dt; nz=oldz+G.carVel.z*dt;
+    if(carPOV && carPOV.userData.update){ carPOV.userData.setSpeed(Math.round(spd*5)); carPOV.userData.setSteer(steer); carPOV.userData.setHealth(G.health); carPOV.userData.update(clock.elapsedTime); }
+  } else {
+    nx=oldx + mx*baseSpeed*dt;
+    nz=oldz + mz*baseSpeed*dt;
+  }
   const c=clampArena(nx,nz,PLAYER_R,true,G.eyeY); camera.position.x=c.x; camera.position.z=c.z;
   // staircase barricade: refuse a step that would climb past an uncleared gate
   const cc=climbCap();
@@ -2213,6 +2247,7 @@ function bindInput(){
     if(k==='r') startReload();
     if(k==='g') throwGrenade();
     if(k==='v') toggleMount();
+    if(k==='b') toggleDrive();
     if(k==='f') doInteract();
     if(k==='1') hotSelect(0);
     if(k==='2') hotSelect(1);
@@ -2278,6 +2313,7 @@ function resetRun(){
   G.lvl12Done=false; G.lvl25Done=false; G.bunkerUnlocked=false; G.monkeyWave=0; G.monkeyTimer=0;
   G.minecraftMode=false; { const m=$('mcInv'); if(m) m.classList.add('hidden'); } if(G.phase==='inv') G.phase='play';
   G.ownsPig=false; G.mounted=false; if(pigFP && camera){ camera.remove(pigFP); }   // clear pig mount on reset
+  G.ownsCar=false; G.driving=false; G.carVel=null; if(carPOV && camera){ camera.remove(carPOV); }   // clear car on reset
   // clear any placed build blocks from a previous run
   if(typeof placedBlocks!=='undefined'){ for(const b of Array.from(placedBlocks.values())) removePlacedBlock(b,false); }
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }

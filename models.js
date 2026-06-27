@@ -937,6 +937,59 @@ class Kit {
     g.userData.update=(t)=>{ const w=t*5.6; head.position.y=-0.84+Math.sin(w)*0.05; head.rotation.x=Math.sin(w*0.5)*0.04; g.position.y=-0.5+Math.abs(Math.sin(w))*0.03; };
     return g;
   }
+  makeCar(kind='sedan') { // drivable car: 'sedan' | 'lambo'
+    const g=new THREE.Group(); const lambo = kind==='lambo';
+    const body=this.mat(lambo?0xe8a01e:0x2b6cb0,0.3,0.6), dark=this.mat(0x14161a,0.5,0.4),
+          glass=new THREE.MeshStandardMaterial({color:0x223040,roughness:0.1,metalness:0.6,transparent:true,opacity:0.6}),
+          tire=this.mat(0x0e0e12,0.9,0), chrome=this.mat(0xc8ccd0,0.3,0.9), light=this.glow(0xfff2c0,0.6), tail=this.glow(0xff3030,0.7);
+    const L=lambo?5.6:5.0, Wd=2.3;
+    g.add(this.at(this.box(L,lambo?0.8:1.05,Wd,body),0,0.72,0));
+    if(lambo){ g.add(this.at(this.box(2.6,0.66,1.95,body),-0.2,1.32,0)); g.add(this.at(this.box(1.7,0.6,1.7,glass),-0.2,1.34,0));
+      g.add(this.at(this.box(1.7,0.4,2.25,body),2.1,0.62,0)); g.add(this.at(this.box(2.3,0.12,1.1,dark),-2.45,1.42,0));
+      [-1.0,1.0].forEach(z=> g.add(this.at(this.box(0.12,0.46,0.12,dark),-2.45,1.16,z)));
+    } else { g.add(this.at(this.box(2.9,1.0,2.0,body),-0.1,1.68,0)); g.add(this.at(this.box(2.55,0.82,1.86,glass),-0.1,1.7,0)); }
+    [-1,1].forEach(z=>{ g.add(this.at(this.box(0.16,0.3,0.5,light),L/2-0.06,0.78,z*0.7)); g.add(this.at(this.box(0.16,0.3,0.5,tail),-L/2+0.06,0.84,z*0.7)); });
+    g.add(this.at(this.box(0.2,0.4,Wd*0.9,chrome),L/2-0.02,0.54,0)); g.add(this.at(this.box(0.2,0.4,Wd*0.9,dark),-L/2+0.02,0.6,0));
+    const wheels=[]; const mkWheel=(x,z)=>{ const w=new THREE.Group(); w.position.set(x,0.5,z);
+      const tm=new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.62,0.42,20),tire); tm.rotation.x=Math.PI/2; w.add(tm);
+      const hub=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.3,0.44,6),chrome); hub.rotation.x=Math.PI/2; w.add(hub); g.add(w); wheels.push(w); };
+    [[L/2-1.0,Wd/2-0.04],[L/2-1.0,-Wd/2+0.04],[-L/2+1.0,Wd/2-0.04],[-L/2+1.0,-Wd/2+0.04]].forEach(p=> mkWheel(p[0],p[1]));
+    this.shadow(g); g.userData.wheels=wheels; g.userData.kind=kind;
+    g.userData.update=(t)=>{ if(g.userData.rolling) wheels.forEach(w=> w.rotation.x-=0.3); };
+    return g;
+  }
+  makeCarPOV() { // first-person driving view: wheel + hands + digital dash (speed, check-engine)
+    const g=new THREE.Group();
+    const dash=this.mat(0x14161a,0.7,0.2), wheelM=this.mat(0x0e0e10,0.6,0.2), skin=this.mat(0xc69a73,0.85,0), sleeve=this.mat(0x2a2e34,0.8,0);
+    g.add(this.at(this.box(3.4,0.7,0.6,dash),0,-0.55,-0.9));
+    g.add(this.at(this.box(3.4,0.5,0.3,this.mat(0x05060a,0.85,0)),0,-0.28,-1.16));
+    const cv=document.createElement('canvas'); cv.width=512; cv.height=256; const tex=new THREE.CanvasTexture(cv);
+    const screen=new THREE.Mesh(new THREE.PlaneGeometry(1.6,0.8), new THREE.MeshBasicMaterial({map:tex})); screen.position.set(0,-0.34,-0.86); screen.rotation.x=-0.28; g.add(screen);
+    const wheel=new THREE.Group(); wheel.position.set(0,-0.5,-0.32); wheel.rotation.x=-0.5; g.add(wheel);
+    wheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.6,0.07,12,32), wheelM));
+    [0,Math.PI*2/3,Math.PI*4/3].forEach(a=>{ const sp=this.box(0.58,0.07,0.07,wheelM); sp.position.set(Math.cos(a)*0.3,Math.sin(a)*0.3,0); sp.rotation.z=a; wheel.add(sp); });
+    wheel.add(this.at(new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,0.08,16),this.glow(0xffc24a,0.4)),0,0,0.02));
+    const hand=(a)=>{ const h=new THREE.Group(); h.position.set(Math.cos(a)*0.58,Math.sin(a)*0.58,0.07); wheel.add(h); h.add(this.at(this.box(0.22,0.17,0.2,skin),0,0,0)); h.add(this.at(this.box(0.17,0.55,0.17,sleeve),0,-0.36,-0.02)); h.rotation.z=a-Math.PI/2; };
+    hand(Math.PI*0.28); hand(Math.PI*0.72);
+    let steer=0, speed=0, health=100;
+    g.userData.setSteer=(s)=>{ steer=Math.max(-1,Math.min(1,s)); };
+    g.userData.setSpeed=(s)=>{ speed=s; }; g.userData.setHealth=(h)=>{ health=h; };
+    const draw=()=>{ const x=cv.getContext('2d'); x.fillStyle='#0a0d12'; x.fillRect(0,0,512,256);
+      x.fillStyle='#8fe0ff'; x.font='700 100px Oswald, sans-serif'; x.textAlign='center'; x.textBaseline='alphabetic'; x.fillText(Math.round(speed), 256, 116);
+      x.fillStyle='#6a7a88'; x.font='600 26px JetBrains Mono, monospace'; x.fillText('MPH', 256, 150);
+      const lit = health<25?'#ff2b2b':health<50?'#ffb020':'#15301c'; x.fillStyle=lit; x.beginPath(); x.ellipse(64,58,28,21,0,0,7); x.fill();
+      x.fillStyle='#1a1f26'; x.fillRect(40,200,432,26); x.fillStyle=health<25?'#ff2b2b':health<50?'#ffb020':'#39d98a'; x.fillRect(40,200,432*Math.max(0,Math.min(100,health))/100,26);
+      tex.needsUpdate=true; };
+    g.userData.update=(t)=>{ wheel.rotation.z = -steer*1.7; draw(); }; draw();
+    return g;
+  }
+  makeWrench() { // repair tool
+    const g=new THREE.Group(); const steel=this.mat(0x9aa0a6,0.4,0.85), dark=this.mat(0x3a3e44,0.6,0.6);
+    g.add(this.at(this.box(0.18,1.5,0.16,steel),0,0,0));
+    g.add(this.at(this.box(0.52,0.52,0.18,steel),0,0.86,0)); g.add(this.at(this.box(0.24,0.34,0.22,dark),0.0,0.99,0));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.27,0.1,10,20), steel); ring.position.y=-0.84; g.add(ring);
+    g.add(this.at(this.box(0.2,0.55,0.17,dark),0,-0.2,0)); this.shadow(g); return g;
+  }
   makeHeldItem(id){ // small first-person held block for the lower-right of the view
     if(!id) return null;
     const blockIds=['stone','wood','plank','glass','dirt','grass','obsidian','brick','diamondblock','leaves','cobblestone','door'];
