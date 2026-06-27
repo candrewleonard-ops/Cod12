@@ -865,8 +865,8 @@ function buildStations(){
   wallSpec.forEach(([x,z,wt,cost])=> addWallBuy(x,z,wt,cost));
 
   // GATES (5 rising-price paywalls) — opened IN ORDER around the ring; buy them all to clear the loop
-  const gateDefs=[ [126,750],[186,1500],[246,2000],[306,2500],[6,3000] ];
-  const gates=gateDefs.map(([deg,price],i)=> addGate(deg,price,i)); ringGates=gates;
+  const gateDefs=[ [126,750,'DOUBLE SHOT'],[186,1500,'ROOTBEER METH'],[246,2000,'POWER · BOSS'],[306,2500,'PINGAS LIQUID'],[6,3000,'DEEP WOODS'] ];
+  const gates=gateDefs.map(([deg,price,leadsTo],i)=> addGate(deg,price,i,leadsTo)); ringGates=gates;
 
   // SPAWN POINTS — fixed ring of zombie origins. Start: the southern hub arc is open;
   // opening a gate unlocks the spawn points in that region (never affects live zombies).
@@ -996,9 +996,17 @@ function addWallBuy(x,z,wtype,cost){
 let ringGates=[];                                   // the ring barricades, in buy order
 function gatePrevOpen(order){ return order<=0 || (ringGates[order-1] && ringGates[order-1].open); }
 function checkAllGates(){ if(ringGates.length && ringGates.every(g=>g.open)) toast('RING CLEARED','every barricade is open','#74e69a'); }
-function addGate(deg,price,order){
-  // Full-width barricade that SPANS the ring road (r≈43..61), like the kit — no walking around it.
-  const rad=deg*Math.PI/180, ZR=52, W=18;
+// Kit-style gate sign: dark plate, gold border, destination NAME over ◈price.
+function gateLabelTex(name,price){
+  const c=document.createElement('canvas'); c.width=512; c.height=160; const x=c.getContext('2d');
+  x.fillStyle='rgba(16,11,6,0.92)'; x.fillRect(0,0,512,160); x.strokeStyle='#ffc24a'; x.lineWidth=6; x.strokeRect(6,6,500,148);
+  x.fillStyle='#ffe9a0'; x.font='700 50px Oswald, Arial, sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(name||'',256,54);
+  x.fillStyle='#ffc24a'; x.font='700 58px Oswald, Arial, sans-serif'; x.fillText('◈ '+price,256,118);
+  const tx=new T.CanvasTexture(c); tx.anisotropy=4; return tx;
+}
+function addGate(deg,price,order,leadsTo){
+  // Full-width barricade that SPANS the ring road (r≈42..62), exactly like the kit — no walking around it.
+  const rad=deg*Math.PI/180, ZR=52, W=20;
   const x=Math.cos(rad)*ZR, z=Math.sin(rad)*ZR;
   const g=new T.Group(); g.position.set(x,0,z); g.rotation.y=-rad;     // local +X → radial → planks span the road
   const postM=KIT.mat(0x241a10,0.95,0), plankM=KIT.mat(0x4a3525,0.85,0); const planks=[];
@@ -1007,8 +1015,10 @@ function addGate(deg,price,order){
   for(let i=0;i<6;i++){ const p=KIT.box(W,0.42,0.4,plankM); p.position.set(0,0.55+i*0.66,0); p.rotation.z=(i%2?1:-1)*0.02; g.add(p);
     planks.push({mesh:p, cy:p.position.y, oy:p.position.y+5.5+i*0.4, cr:p.rotation.z, or:(i%2?1:-1)*1.2}); }
   [-1,1].forEach(s=>{ const br=KIT.box(W*0.94,0.32,0.3,KIT.mat(0x3a2a1b,0.9,0)); br.position.set(0,2.1,0.07); br.rotation.z=s*0.32; g.add(br); }); // X-braces
-  const tag=new T.Mesh(new T.PlaneGeometry(6,1.9), new T.MeshBasicMaterial({map:KIT.label('◈ '+price,'#ffe9a0'),transparent:true})); tag.position.set(0,5.7,0); g.add(tag);
-  const gate=addInteractable({group:g, x, z, radius:5, type:'gate', cost:price, open:false, planks, anim:0, deg, order,
+  const tag=new T.Mesh(new T.PlaneGeometry(6,1.9), new T.MeshBasicMaterial({map:gateLabelTex(leadsTo,price),transparent:true,side:T.DoubleSide})); tag.position.set(0,5.7,0); g.add(tag);
+  g.add(KIT.at(KIT.box(6.3,2.1,0.05,KIT.glow(0xffc24a,0.55)),0,5.7,-0.06));         // glowing gold backing behind the sign
+  KIT.shadow(g);
+  const gate=addInteractable({group:g, x, z, radius:5, type:'gate', cost:price, open:false, planks, anim:0, deg, order, leadsTo,
     label:()=>{ if(gate.open) return null;
       if(!gatePrevOpen(order)) return {key:'F', txt:'Clear the earlier barricade first', cost:0, cant:true};
       return {key:'F', txt:'Clear Barricade', cost:price}; },
@@ -2462,6 +2472,56 @@ function casBindOnce(){ if(_casBound) return; _casBound=true;
   const pd=$('plinkoDrop'); if(pd) pd.addEventListener('click', plinkoDrop);
   const sb=$('scratchBuy'); if(sb) sb.addEventListener('click', scratchBuy);
 }
+/* ════════════════════ MARKETPLACE + BITCOIN ════════════════════ */
+const MARKET=[['stone',15],['wood',15],['plank',12],['glass',25],['brick',30],['coal',20],['iron',45],['diamond',120],['dirt',8],['bread',60],['stick',8],['wheat',18],['cobblestone',12],['obsidian',80]];
+let _mkBound=false, _btcPrice=125000, _btcHist=[], _btcTO=null;
+function mkBal(){ const e=$('mkBal'); if(e) e.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
+function openMarket(){ if(G.phase!=='play') return; G.phase='market'; document.exitPointerLock&&document.exitPointerLock();
+  $('market').classList.remove('hidden'); mkBal(); mkBindOnce(); mkRenderItems(); btcStart(); }
+function closeMarket(){ if(G.phase!=='market') return; btcStop(); $('market').classList.add('hidden'); G.phase='play'; lockMouse(); }
+function mkTab(name){ $('mkItems').classList.toggle('hidden',name!=='items'); $('mkBtc').classList.toggle('hidden',name!=='btc');
+  document.querySelectorAll('.mkTab').forEach(t=>t.classList.toggle('sel',t.dataset.tab===name)); if(name==='btc') btcDraw(); }
+function mkRenderItems(){ const g=$('mkItems'); if(!g) return; g.innerHTML='';
+  MARKET.forEach(([id,price])=>{ const row=document.createElement('div'); row.className='mkRow';
+    row.innerHTML='<div class="mcBlk" data-t="'+id+'"></div><span class="mkN">'+itemName(id)+' ◈'+price+'</span><button class="mkBuy">BUY</button><button class="mkSell">SELL</button>';
+    row.querySelector('.mkBuy').addEventListener('click',()=>{ if(spend(price)){ invAdd(id,1); mkBal(); if(AU&&AU.buy)AU.buy(); } });
+    row.querySelector('.mkSell').addEventListener('click',()=>{ if(invCount(id)>0){ invRemove(id,1); addPoints(price); mkBal(); if(AU&&AU.buy)AU.buy(); } });
+    g.appendChild(row); }); }
+function _btcStep(){ const drift=(125000-_btcPrice)*0.02, vol=_btcPrice*0.03*(Math.random()*2-1); _btcPrice=Math.max(10000,Math.min(250000,_btcPrice+drift+vol)); _btcHist.push(_btcPrice); if(_btcHist.length>60) _btcHist.shift(); }
+function btcStart(){ if(_btcHist.length<2){ _btcPrice=125000; _btcHist=[]; for(let i=0;i<60;i++) _btcStep(); } btcDraw(); btcInfo();
+  if(_btcTO) clearInterval(_btcTO); _btcTO=setInterval(()=>{ _btcStep(); btcDraw(); btcInfo(); }, 700); }
+function btcStop(){ if(_btcTO){ clearInterval(_btcTO); _btcTO=null; } }
+function btcDraw(){ const cv=$('btcCv'); if(!cv) return; const x=cv.getContext('2d'),W=cv.width,H=cv.height; x.fillStyle='#06101a'; x.fillRect(0,0,W,H);
+  if(_btcHist.length<2) return; const mn=Math.min(..._btcHist),mx=Math.max(..._btcHist),rng=(mx-mn)||1;
+  x.strokeStyle='#7fe0ff'; x.lineWidth=2; x.beginPath();
+  _btcHist.forEach((p,i)=>{ const px=i/(_btcHist.length-1)*W, py=H-8-((p-mn)/rng)*(H-16); i?x.lineTo(px,py):x.moveTo(px,py); }); x.stroke(); }
+function btcInfo(){ if($('btcPrice')) $('btcPrice').textContent='₿ '+Math.round(_btcPrice).toLocaleString(); if($('btcHold')) $('btcHold').textContent='held '+(G.btc||0).toFixed(2)+' ₿'; if($('btcAmt')) $('btcAmtV').textContent=(+$('btcAmt').value).toFixed(1)+' ₿'; }
+function btcBuy(){ const amt=+$('btcAmt').value, cost=Math.round(amt*_btcPrice); if(spend(cost)){ G.btc=(G.btc||0)+amt; mkBal(); btcInfo(); } }
+function btcSell(){ const amt=+$('btcAmt').value; if((G.btc||0)>=amt){ G.btc-=amt; addPoints(Math.round(amt*_btcPrice)); mkBal(); btcInfo(); } }
+function mkBindOnce(){ if(_mkBound) return; _mkBound=true;
+  $('mkClose').addEventListener('click',closeMarket);
+  document.querySelectorAll('.mkTab').forEach(t=>t.addEventListener('click',()=>mkTab(t.dataset.tab)));
+  $('btcBuy').addEventListener('click',btcBuy); $('btcSell').addEventListener('click',btcSell); $('btcAmt').addEventListener('input',btcInfo); }
+
+/* ════════════════════ ENCHANTING ════════════════════ */
+const ENCHANTS=[['Speed I','fire rate +25%',2000,'speed'],['Power I','damage +30%',3000,'power'],['Vampirism','heal 6 HP per kill',4000,'vamp']];
+let _enBound=false;
+function enBal(){ const e=$('enBal'); if(e) e.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
+function openEnchant(){ if(G.phase!=='play') return; G.phase='enchant'; document.exitPointerLock&&document.exitPointerLock();
+  $('enchant').classList.remove('hidden'); enBal(); enRender(); enBindOnce(); }
+function closeEnchant(){ if(G.phase!=='enchant') return; $('enchant').classList.add('hidden'); G.phase='play'; lockMouse(); }
+function enRender(){ const g=$('enList'); if(!g) return; g.innerHTML='';
+  ENCHANTS.forEach(([name,desc,cost,key])=>{ const w0=curW(); const has=w0&&w0.ench&&w0.ench[key];
+    const row=document.createElement('div'); row.className='enRow';
+    row.innerHTML='<span class="enN">'+name+'<br><small style="color:#9f88c0">'+desc+'</small></span><span class="enC">'+(has?'✓ applied':'◈'+cost)+'</span>';
+    row.addEventListener('click',()=>{ const w=curW(); if(!w){ $('enMsg').textContent='no gun held'; return; }
+      if(w.ench&&w.ench[key]){ $('enMsg').textContent='already applied'; return; }
+      if(!spend(cost)){ $('enMsg').textContent='need ◈'+cost; return; }
+      w.ench=w.ench||{}; w.ench[key]=true; if(key==='power') w.enchDmg=1.3; if(key==='speed') w.enchRate=1.25;
+      enBal(); enRender(); $('enMsg').textContent=name+' applied!'; if(AU&&AU.power)AU.power(); });
+    g.appendChild(row); }); }
+function enBindOnce(){ if(_enBound) return; _enBound=true; $('enClose').addEventListener('click',closeEnchant); }
+
 function give1M(){ addPoints(1000000); if(AU&&AU.power)AU.power(); toast('+1,000,000','cheat points','#ffd24a'); }
 function bindInput(){
   { const gb=$('give1m'); if(gb) gb.addEventListener('click', ()=>{ give1M(); if(G.phase==='play') lockMouse(); }); }
