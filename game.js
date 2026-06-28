@@ -1236,7 +1236,8 @@ function buildPlayerArms(){
   // reusable muzzle flash light (constant light count — toggled, never added/removed)
   if(!muzzle){ muzzle=new T.PointLight(0xffd58a,0,6,2); camera.add(muzzle); muzzle.position.set(0.2,-0.2,-1.2); }
   // steady viewmodel fill so the held weapon reads clearly even at night / indoors
-  if(!viewLight){ viewLight=new T.PointLight(0xcfe0ff,0.9,4,2); camera.add(viewLight); viewLight.position.set(0.1,-0.1,-0.5); }
+  if(!viewLight){ viewLight=new T.PointLight(0xeaf2ff,1.9,7,2); camera.add(viewLight); viewLight.position.set(0.15,0.05,-0.55);   // bright gallery-style key on the viewmodel
+    const vk=new T.PointLight(0xfff1d8,0.8,6,2); vk.position.set(-0.25,0.25,-0.4); camera.add(vk); }                          // warm rim from upper-left so steel/wood pop
 }
 
 function curW(){ return G.weapons[G.cur]; }
