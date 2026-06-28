@@ -966,6 +966,13 @@ function buildStations(){
       run:()=>{ if(!onRoof()||G.megaActive||G.megaDefeated) return false; if(!spend(8000)) return false;
         spawnMegaBoss(CAMP_X+ex, CAMP_Z+ez+6, roofY); return true; } }); }   // world coords (camp is offset)
 
+  // ROOFTOP MARKETPLACE HOUSE (kit modern house) — holds the BTC/marketplace computer up top
+  { const mh=KIT.makeVillageHouse('modern'); mh.scale.setScalar(0.7); mh.position.set(20,roofY,-2); mh.rotation.y=-Math.PI/2; KIT.shadow(mh); buildRoot.add(mh); if(mh.userData.update) worldAnims.push(mh.userData.update);
+    const ms=new T.Mesh(new T.PlaneGeometry(6,1.4), new T.MeshBasicMaterial({map:KIT.label('MARKETPLACE','#7fe0ff'),transparent:true})); ms.position.set(20,roofY+5.5,-2); buildRoot.add(ms);
+    addInteractable({ x:20, z:-2, radius:5, type:'market',
+      label:()=> onRoof()?{key:'F', txt:'Open MARKETPLACE · BTC', cost:0}:null,
+      run:()=> onRoof() ? (openMarket(),true) : false }); }
+
   // BOSS YARD (north, deg 270): wall-buys + mini-boss spawns here
   { const [x,z]=pos(270); addFireLight(x,z+8);
     addWallBuy(x+9,z,'ak',2500); addWallBuy(x-9,z,'rifle',2000);
