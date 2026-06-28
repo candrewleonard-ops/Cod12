@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>UNDEAD SIEGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --accent:#5aa0ff; --blood:#9c2b2b; --gold:#ffc24a; --pingas:#ff48c0;
@@ -134,41 +136,46 @@
   #fps{position:absolute; left:8px; top:6px; font-size:12px; color:#5fae6a; z-index:20; opacity:.0; font-family:monospace}
   #fps.on{opacity:.85}
   /* ════════ MINECRAFT MODE — inventory/crafting overlay ════════ */
-  #mcInv{position:absolute; inset:0; z-index:35; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:radial-gradient(ellipse at 50% 45%, rgba(12,18,28,.62), rgba(3,5,9,.9)); font-family:inherit}
+  /* ── inventory ported 1:1 from the kit (Undead Siege Kit, showInv panel) ── */
+  #mcInv{position:absolute; inset:0; z-index:35; display:flex; align-items:center; justify-content:center; pointer-events:auto; background:rgba(4,6,9,.55); font-family:inherit}
   #mcInv.hidden{display:none !important}
-  #mcPanel{width:660px; max-width:96vw; max-height:96vh; overflow:auto; padding:14px 18px 12px; background:linear-gradient(180deg,rgba(22,28,40,.96),rgba(12,16,26,.97)); border:3px solid #2a3346; border-radius:4px; box-shadow:0 0 0 2px #0a0e16, 0 14px 50px rgba(0,0,0,.7)}
-  #mcTitle{font-size:17px; font-weight:700; letter-spacing:3px; color:#cfe0ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px}
-  #mcTitle span{font-size:10px; letter-spacing:1px; color:#6f819f}
-  #mcBody{display:flex; gap:16px; align-items:flex-start}
-  #mcLeft{flex:0 0 auto} #mcRight{flex:1 1 auto; min-width:180px}
-  #mcCraftRow{display:flex; align-items:center; gap:12px; margin-bottom:10px}
-  #mcCraft{display:grid; grid-template-columns:repeat(3,38px); grid-template-rows:repeat(3,38px); gap:4px}
-  #mcArrow{font-size:20px; color:#5c6f8d} #mcResultWrap{display:flex; flex-direction:column; align-items:center; gap:4px}
-  #mcCraftName{font-size:10px; letter-spacing:1px; color:#9fb2cf; min-height:12px; text-transform:uppercase; text-align:center; max-width:78px}
-  .mcLbl{font-size:10px; letter-spacing:2px; color:#7f93b3; text-transform:uppercase; margin:2px 0 4px}
-  #mcMain{display:grid; grid-template-columns:repeat(10,38px); gap:4px}
-  #mcHot{display:grid; grid-template-columns:repeat(5,38px); gap:4px; margin-top:2px}
-  .mcSlot{width:38px; height:38px; background:#12161f; border:2px solid #3a455c; box-shadow:inset 0 3px 0 rgba(0,0,0,.45); border-radius:2px; position:relative; cursor:pointer; transition:border-color .1s}
-  .mcSlot:hover{border-color:#5aa0ff} #mcCraftResult{width:48px; height:48px; border-color:#ffc24a; cursor:pointer}
-  #mcCraftResult.ready{box-shadow:inset 0 0 14px rgba(255,194,74,.5), 0 0 16px rgba(255,194,74,.35)}
-  #mcHot .mcSlot{border-color:#5a6886; background:#161d2a} #mcHot .mcSlot:nth-child(-n+2){border-color:#7a5a3a}
-  .mcSlot.sel{border-color:#ffd23a; box-shadow:inset 0 0 12px rgba(255,210,58,.45)}
-  #mcRecipeBook{max-height:228px; overflow-y:auto; padding-right:6px; display:flex; flex-direction:column; gap:5px}
-  .recipeRow{display:flex; gap:10px; align-items:center; padding:6px 8px; background:rgba(8,12,18,.55); border:1px solid #232c3c; border-radius:3px}
-  .recipeRow .mcBlk{position:relative; width:30px; height:30px; inset:auto; flex:0 0 30px}
-  .rInfo{min-width:0} .rName{font-size:12px; font-weight:700; letter-spacing:1px; color:#cfe0ff; text-transform:uppercase}
+  #mcPanel{max-width:96vw; max-height:96vh; overflow:auto; padding:22px; background:rgba(14,18,24,.97); border:2px solid rgba(160,170,180,.32); border-radius:8px; box-shadow:0 16px 50px rgba(0,0,0,.5)}
+  #mcTitle{font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.22em; color:#8fb6ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px}
+  #mcTitle span{font-size:9px; letter-spacing:.1em; color:#5a6b80}
+  #mcBody{display:flex; gap:26px; align-items:flex-start}
+  #mcLeft{flex:0 0 auto} #mcRight{flex:1 1 auto; min-width:170px}
+  #mcCraftRow{display:flex; align-items:center; gap:10px; margin-bottom:14px}
+  #mcCraft{display:grid; grid-template-columns:repeat(3,48px); grid-template-rows:repeat(3,48px); gap:4px}
+  #mcArrow{font-family:'JetBrains Mono',monospace; font-size:11px; color:#62707b} #mcResultWrap{display:flex; flex-direction:column; align-items:center; gap:4px}
+  #mcCraftName{font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.1em; color:#8fb6ff; min-height:11px; text-transform:uppercase; text-align:center; max-width:88px}
+  .mcLbl{font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.22em; color:#8fb6ff; text-transform:uppercase; margin:0 0 7px}
+  #mcMain{display:grid; grid-template-columns:repeat(6,48px); gap:4px}
+  #mcHot{display:grid; grid-template-columns:repeat(5,48px); gap:4px; margin-top:2px}
+  .mcSlot{width:48px; height:48px; background:rgba(30,36,42,.7); border:2px solid rgba(160,170,180,.3); border-radius:3px; position:relative; cursor:pointer; transition:border-color .1s; display:flex; align-items:center; justify-content:center}
+  .mcSlot:hover{border-color:#ffffff} #mcCraftResult{width:48px; height:48px; border:2px solid rgba(217,164,65,.5); background:rgba(40,34,20,.7); cursor:pointer}
+  #mcCraftResult.ready{box-shadow:inset 0 0 14px rgba(217,164,65,.5), 0 0 16px rgba(217,164,65,.35)}
+  #mcHot .mcSlot{border-color:rgba(140,160,200,.4)} #mcHot .mcSlot:nth-child(-n+2){border-color:rgba(217,164,65,.45)}
+  .mcSlot.sel{border-color:#ffffff; box-shadow:0 0 10px rgba(255,255,255,.35)}
+  #mcRecipeBook{max-height:300px; overflow-y:auto; padding-right:6px; display:flex; flex-direction:column; gap:5px}
+  .recipeRow{display:flex; gap:10px; align-items:center; padding:6px 8px; background:rgba(30,36,42,.5); border:1px solid rgba(160,170,180,.16); border-radius:3px; cursor:pointer}
+  .recipeRow:hover{border-color:#ffffff}
+  .recipeRow .mcBlk{position:relative; width:28px; height:28px; inset:auto; flex:0 0 28px}
+  .rInfo{min-width:0} .rName{font-family:'Oswald',sans-serif; font-size:12px; font-weight:600; letter-spacing:.08em; color:#cfe4ff; text-transform:uppercase}
   .rDesc{font-size:11px; color:#8295b4; line-height:1.35}
-  #mcHeld{position:fixed; z-index:60; width:40px; height:40px; pointer-events:none}
+  #mcHeld{position:fixed; z-index:60; width:30px; height:30px; pointer-events:none}
   #mcHeld.hidden{display:none} #mcHeld .mcBlk{position:absolute; inset:0}
-  /* always-on HUD hotbar */
-  #hotbar{position:absolute; left:50%; bottom:16px; transform:translateX(-50%); display:flex; gap:6px; z-index:20; pointer-events:none}
-  .hslot{width:50px; height:50px; background:rgba(10,14,22,.6); border:2px solid #3a455c; border-radius:3px; position:relative}
-  .hslot:nth-child(-n+2){border-color:#6a4f34}
-  .hslot.sel{border-color:#ffd23a; box-shadow:0 0 12px rgba(255,210,58,.5); transform:translateY(-3px)}
-  .hslot .hicon{position:absolute; inset:5px} .hslot .hicon .mcBlk{position:absolute; inset:0}
-  .hslot .hcount{position:absolute; right:2px; bottom:1px; font-size:12px; font-weight:700; color:#fff; text-shadow:1px 1px 0 #000}
-  .hslot .hnum{position:absolute; left:2px; top:0; font-size:10px; color:#6f819f}
-  .mcBlk.gunChip{display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#2a3344,#161c28); box-shadow:inset 0 0 0 2px #44608a}
+  /* voxel item square — kit look: top-lit, bottom-shadowed */
+  .mcBlk{width:28px; height:28px; border-radius:2px; box-shadow:inset 0 -5px rgba(0,0,0,.32); pointer-events:none}
+  .mcCount{position:absolute; top:1px; right:3px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:#ffffff; text-shadow:1px 1px 2px #000,0 0 2px #000; pointer-events:none}
+  /* always-on HUD hotbar — kit look */
+  #hotbar{position:absolute; left:50%; bottom:14px; transform:translateX(-50%); display:flex; gap:4px; align-items:flex-end; z-index:20; pointer-events:none}
+  .hslot{width:54px; height:54px; background:rgba(20,24,30,.82); border:2px solid rgba(160,170,180,.4); border-radius:3px; position:relative; display:flex; align-items:center; justify-content:center}
+  .hslot:nth-child(-n+2){border-color:rgba(217,164,65,.45)}
+  .hslot.sel{border-color:#ffffff}
+  .hslot .hicon{width:30px; height:30px} .hslot .hicon .mcBlk{width:30px; height:30px; box-shadow:inset 0 -6px rgba(0,0,0,.32),inset 0 6px rgba(255,255,255,.16)}
+  .hslot .hcount{position:absolute; right:3px; bottom:1px; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:#fff; text-shadow:1px 1px 2px #000}
+  .hslot .hnum{position:absolute; left:3px; top:0; font-family:'JetBrains Mono',monospace; font-size:9px; color:#5a6b80}
+  .mcBlk.gunChip{display:flex; align-items:center; justify-content:center; background:rgba(40,48,62,.9); box-shadow:inset 0 0 0 2px rgba(120,160,200,.5)}
   .mcBlk.gunChip span{font-size:9px; font-weight:700; color:#9fd0ff; letter-spacing:1px}
   /* sniper scope */
   #scope{position:absolute; inset:0; z-index:24; pointer-events:none;
