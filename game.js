@@ -275,11 +275,7 @@ function buildCompound(){
         const w=curW(); if(!w) return null; if(w.pap && w.type!=='pistol' && w.type!=='spacepistol') return {key:'F', txt:'Already Pingas-Punched', cost:0, cant:true};
         return {key:'F', txt:'Pack-a-Pingas', cost:5000}; },
       run:()=> onDeck() && packAPunch() });
-    addInteractable({ x:56+9, z:56+9, radius:4.0, type:'superpingas',
-      label:()=>{ if(!onDeck()) return null; const w=curW(); if(!w) return null;
-        if(w.superUpgrade) return {key:'F', txt:'Already Super-Pingas', cost:0, cant:true};
-        return {key:'F', txt:'SUPER Pack-a-Pingas', cost:0}; },
-      run:()=>{ if(!onDeck()) return false; const w=curW(); if(!w||w.superUpgrade) return false; applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } });
+    // (SUPER Pack-a-Pingas removed from the tree-top — it now lives only on the surface, behind the mega-gate, for ◈10,000)
     const deckPerk=(wx,wz,lines,trim,perkId)=>{ addInteractable({ x:wx, z:wz, radius:3.0, type:'perk', perkId,
       label:()=>{ if(!onDeck()) return null; if(!G.powerOn) return {key:'F', txt:lines+' (needs power)', cost:0, cant:true};
         if(G.perks.has(perkId)) return null; return {key:'F', txt:'Perk: '+lines, cost:2500}; },
@@ -353,8 +349,8 @@ function buildCompound(){
     KIT.shadow(sm);
     const spot=new T.SpotLight(0xffd24a,1.2,40,0.7,0.5); spot.position.set(sx,16,sz); spot.target.position.set(sx,3,sz); scene.add(spot); scene.add(spot.target);
     addInteractable({ x:sx, z:sz, radius:3.6, collide:1.3, type:'superpingas',
-      label:()=>{ const w=curW(); if(!w) return null; if(w.superUpgrade) return {key:'F', txt:'Already Super-Pingas', cost:0, cant:true}; return {key:'F', txt:'SUPER Pack-a-Pingas', cost:0}; },
-      run:()=>{ const w=curW(); if(!w||w.superUpgrade) return false; applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } }); }
+      label:()=>{ const w=curW(); if(!w) return null; if(w.superUpgrade) return {key:'F', txt:'Already Super-Pingas', cost:0, cant:true}; return {key:'F', txt:'SUPER Pack-a-Pingas', cost:10000}; },
+      run:()=>{ const w=curW(); if(!w||w.superUpgrade) return false; if(!spend(10000)){ toast('NEED ◈10,000','SUPER Pack-a-Pingas','#ffae3a'); return false; } applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } }); }
 }
 // $100,000 mega-gate barricade (same plank style as the buy-gates), in the south wall gap facing the camp
 function buildMegaGate(){
@@ -1231,6 +1227,8 @@ function buildPlayerArms(){
   if((w.type==='pistol'||w.type==='spacepistol') && w.superPaP){
     const g3=KIT.makeWeapon(w.type, true); g3.scale.setScalar(0.70); g3.position.set(0,-0.34,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3;
   }
+  // capture each akimbo gun's rest pose so per-gun recoil only kicks the gun that fired
+  [arms.userData.gunL, arms.userData.gunR, arms.userData.gunC].forEach(g=>{ if(g){ g.userData.baseZ=g.position.z; g.userData.baseRX=g.rotation.x; g.userData.recoil=0; } });
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
   tagReloadParts(arms);                                    // capture the reload rig (mag/charge/pump/core + arms)
@@ -1358,7 +1356,8 @@ function fireBarrel(w, d, ammoKey, shotKey, gunMesh, dmgMul){
   if(now - (w[shotKey]!=null?w[shotKey]:-9) < 1/rate) return false;
   if((w[ammoKey]||0) <= 0) return 'empty';
   w[shotKey]=now; w[ammoKey]--;
-  recoil = Math.min(0.5, recoil + 0.12*(G.perks.has('pingasliquid')?0.6:1));    // only this gun kicks
+  if(gunMesh && gunMesh.userData && gunMesh.userData.baseZ!=null) gunMesh.userData.recoil=Math.min(1.0,(gunMesh.userData.recoil||0)+0.55);  // ONLY this gun kicks
+  else recoil = Math.min(0.5, recoil + 0.12*(G.perks.has('pingasliquid')?0.6:1));
   muzzle.intensity=2.4; muzzleT=now;
   if(gunMesh && gunMesh.userData && gunMesh.userData.muzzle){ gunMesh.updateWorldMatrix(true,false);
     const wp=gunMesh.localToWorld(gunMesh.userData.muzzle.clone()); camera.worldToLocal(wp); muzzle.position.copy(wp); }
@@ -1380,18 +1379,43 @@ function fireBarrel(w, d, ammoKey, shotKey, gunMesh, dmgMul){
   addPoints(10);
   return true;
 }
-// Left button → left gun, right button → right gun; super center gun fires with either hand.
+// PER-GUN independent fire+reload (kit model): each Mauser keeps its own ammo, cadence and
+// reload timer, so emptying/reloading ONE never blocks the other. Left→L gun, right→R gun,
+// super center fires with either hand off its own 36 mag.
+const AK_SIDES={ L:{ammo:'ammoL',shot:'lastShotL',relo:'reloL',reloEnd:'reloLEnd',gun:'gunL'},
+                 R:{ammo:'ammoR',shot:'lastShotR',relo:'reloR',reloEnd:'reloREnd',gun:'gunR'},
+                 C:{ammo:'ammoC',shot:'lastShotC',relo:'reloC',reloEnd:'reloCEnd',gun:'gunC'} };
+function akStartReload(w,side){ const k=AK_SIDES[side];
+  if(w[k.relo] || w.reserve<=0) return;
+  const mag = side==='C' ? (w.cmag||36) : w.mag;
+  if((w[k.ammo]||0) >= mag) return;
+  w[k.relo]=true; w[k.reloEnd]=clock.elapsedTime+1.5; if(AU&&AU.reload) AU.reload();
+}
+function akSide(w,d,dmgMul,side,ud){ const k=AK_SIDES[side];
+  if(w[k.relo]) return false;                                   // this gun is reloading — the others keep firing
+  const gun = ud[k.gun] || ud.weapon;
+  const r = fireBarrel(w, d, k.ammo, k.shot, gun, dmgMul);
+  if(r==='empty'){ akStartReload(w,side); return false; }
+  if(r===true && (w[k.ammo]||0)<=0) akStartReload(w,side);
+  return r===true;
+}
 function fireAkimbo(side){
-  const w=curW(); if(!w||w.reloading) return;
+  const w=curW(); if(!w) return;
   const d=WDEF[w.type];
   const dmgMul=(w.pap?2.2:1)*(G.instaKill>0?1000:1)*(w.superUpgrade?2:1)*(w.superPaP?1.4:1)*(w.enchDmg||1);
   const ud=(arms&&arms.userData)||{};
-  const gun = side==='L' ? (ud.gunL||ud.weapon) : (ud.gunR||ud.weapon);
-  const r=fireBarrel(w, d, side==='L'?'ammoL':'ammoR', side==='L'?'lastShotL':'lastShotR', gun, dmgMul);
-  if(w.superPaP) fireBarrel(w, d, 'ammoC', 'lastShotC', ud.gunC||gun, dmgMul);   // center barrel
-  if(r==='empty'){ AU.dry(); flashReloadHint(); }
-  if(w.ammoL<=0 || w.ammoR<=0 || (w.superPaP && (w.ammoC||0)<=0)) startReload();  // any empty → all reload together
+  akSide(w, d, dmgMul, side, ud);                              // the pressed hand
+  if(w.superPaP) akSide(w, d, dmgMul, 'C', ud);               // center gun fires with either hand
   updateAmmoHUD();
+}
+// complete per-side akimbo reloads independently (called every sim step)
+function updateAkimboReload(){
+  const w=curW(); if(!w||!w.akimbo) return; const now=clock.elapsedTime;
+  const sides=['L','R']; if(w.superPaP) sides.push('C');
+  for(const side of sides){ const k=AK_SIDES[side];
+    if(w[k.relo] && now>=w[k.reloEnd]){ w[k.relo]=false;
+      const mag=side==='C'?(w.cmag||36):w.mag, need=mag-(w[k.ammo]||0), take=Math.min(need,w.reserve);
+      w[k.ammo]=(w[k.ammo]||0)+take; w.reserve-=take; updateAmmoHUD(); } }
 }
 
 /* Wonder weapon bolt pool — FULLY pre-allocated at boot (see prewarmFX).
@@ -2037,7 +2061,11 @@ function updatePlayer(dt){
   if(arms){ recoil*=Math.max(0,1-dt*9);
     arms.position.z = recoil*0.12; arms.rotation.x = recoil*0.5;
     arms.position.y = Math.sin(clock.elapsedTime*1.6)*0.01;
-    arms.position.x = Math.sin(clock.elapsedTime*0.9)*0.008; }
+    arms.position.x = Math.sin(clock.elapsedTime*0.9)*0.008;
+    const ud=arms.userData;   // per-gun akimbo recoil: each Mauser bounces on its own
+    [ud.gunL,ud.gunR,ud.gunC].forEach(g=>{ if(!g||g.userData.baseZ==null) return;
+      g.userData.recoil=(g.userData.recoil||0)*Math.max(0,1-dt*11);
+      g.position.z=g.userData.baseZ + g.userData.recoil*0.22; g.rotation.x=g.userData.baseRX - g.userData.recoil*0.5; }); }
   // muzzle flash decay
   if(muzzle && muzzle.intensity>0){ muzzle.intensity=Math.max(0, muzzle.intensity - dt*22); }
   // door swing
@@ -2093,12 +2121,11 @@ function applyReloadAnim(arms, type, p){
   else { if(W) W.o.rotation.z += 0.4*bell; if(part.mag){ part.mag.o.position.y += -0.62*_swap(p,0.08,0.6); } if(part.charge){ part.charge.o.position.z += -0.12*_win(p,0.82,0.96); } if(L) L.o.position.y += -0.28*_win(p,0.08,0.6); }
 }
 function startReload(){
-  const w=curW(); if(!w||w.reloading) return;
-  if(w.akimbo){   // both guns reload together (~1.5s)
-    const full=(w.ammoL>=w.mag)&&(w.ammoR>=w.mag)&&(!w.superPaP || (w.ammoC||0)>=(w.cmag||36));
-    if(full || w.reserve<=0) return;
-    w.reloading=true; w.reloadStart=clock.elapsedTime; w.reloadEnd=clock.elapsedTime+1.5; AU.reload(); flashReloadHint(true); return;
+  const w=curW(); if(!w) return;
+  if(w.akimbo){   // R key: reload each empty gun independently (no shared lock)
+    akStartReload(w,'L'); akStartReload(w,'R'); if(w.superPaP) akStartReload(w,'C'); flashReloadHint(true); return;
   }
+  if(w.reloading) return;
   if(w.ammo>=w.mag || w.reserve<=0) return;
   const d=WDEF[w.type]; const rt=d.reload * (G.perks.has('pingasliquid')?0.55:1);
   w.reloading=true; w.reloadStart=clock.elapsedTime; w.reloadEnd=clock.elapsedTime+rt; AU.reload(); flashReloadHint(true);
@@ -2109,12 +2136,7 @@ function updateReload(){
   const dur=(w.reloadEnd-w.reloadStart)||1, p=(clock.elapsedTime-(w.reloadStart||clock.elapsedTime))/dur;
   applyReloadAnim(arms, w.type, p); if(arms&&arms.userData) arms.userData._wasReloading=true;
   if(clock.elapsedTime>=w.reloadEnd){ w.reloading=false; clearReloadAnim(arms); if(arms&&arms.userData) arms.userData._wasReloading=false;
-    if(w.akimbo){ let res=w.reserve;
-      { const t=Math.min(w.mag-w.ammoL,res); w.ammoL+=t; res-=t; }
-      { const t=Math.min(w.mag-w.ammoR,res); w.ammoR+=t; res-=t; }
-      if(w.superPaP){ const cm=w.cmag||36; const t=Math.min(cm-(w.ammoC||0),res); w.ammoC=(w.ammoC||0)+t; res-=t; }
-      w.reserve=res; w.ammo=w.ammoR; }
-    else { const need=w.mag-w.ammo, take=Math.min(need,w.reserve); w.ammo+=take; w.reserve-=take; }
+    const need=w.mag-w.ammo, take=Math.min(need,w.reserve); w.ammo+=take; w.reserve-=take;
     updateAmmoHUD(); flashReloadHint(false); }
 }
 
@@ -2960,6 +2982,7 @@ function simStep(dt){
   }
   updatePlayer(dt);
   updateReload();
+  updateAkimboReload();
   updateEnemies(dt);
   updateBolts(dt);
   updateNades(dt);

@@ -1231,7 +1231,6 @@ class Kit {
     const perk2=this.makePerkMachine(['PINGAS','LIQUID'],0x4a2a66,0xff48c0); perk2.position.set(11,0.65,3); perk2.rotation.y=-1.4; plat.add(perk2); mUps.push(perk2.userData.update);
     const sniper=this.makeWallBuy('sniper','3000'); sniper.position.set(-11,0.65,3); sniper.rotation.y=1.4; plat.add(sniper);
     const sign=new THREE.Mesh(new THREE.PlaneGeometry(7,1.4), new THREE.MeshBasicMaterial({ map:this.label('SNIPER','#bfe0ff'), transparent:true })); sign.position.set(-11,4,3); sign.rotation.y=1.4; plat.add(sign);
-    const superM=this.makeSuperPingasMachine(); superM.scale.setScalar(0.5); superM.position.set(9,0.65,9); superM.rotation.y=-2.2; plat.add(superM); mUps.push(superM.userData.update);
     const plight=new THREE.PointLight(0xffd9a0,1.0,46); plight.position.set(0,7,0); plat.add(plight);
     const ladder=new THREE.Group(); ladder.position.set(0,0,LZ); g.add(ladder); g.userData.ladder=ladder;
     g.add(this.at(this.box(4.2,0.3,3.0,this.mcMat('plank')), 0,0.16, LZ+1.6));         // plank landing pad at the ladder foot
