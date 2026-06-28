@@ -1496,8 +1496,19 @@ function updateAxeProj(dt){
 }
 
 /* ════════════════════ DAMAGE / DEATH / DROPS ════════════════════ */
-function damageEnemy(e, dmg, head, bearingDeg, melee){
+function damageEnemy(e, dmg, head, bearingDeg, melee, isChain){
   if(!e.alive) return; e.hp-=dmg;
+  // gun enchants (Frostbite / Pingas Surge) — only off a direct hit, not a chain
+  if(!isChain){ const w=curW();
+    if(w && w.ench){
+      if(w.ench.frost) e.slowT = clock.elapsedTime + 1.6;                       // Frostbite: slow this enemy
+      if(w.ench.surge){ let hops=0;                                              // Pingas Surge: chain to 2 nearby foes
+        for(let i=0;i<zombies.length && hops<2;i++){ const o=zombies[i];
+          if(o===e || !o.alive || o.dying) continue;
+          if(Math.hypot(o.grp.position.x-e.grp.position.x, o.grp.position.z-e.grp.position.z) < 5.5){ hops++; damageEnemy(o, dmg*0.4, false, 0, false, true); } }
+      }
+    }
+  }
   const lethal = e.hp<=0;
   if(head && lethal && e.grp.userData.blowHead) e.grp.userData.blowHead(bearingDeg||0);  // FATAL headshot → pop the head
   if(lethal){ killEnemy(e, head, melee); }
@@ -1893,7 +1904,7 @@ function updateEnemies(dt){
       const wp=routeWaypoint(e,tgt);
       const wx=wp.x-e.grp.position.x, wz=wp.z-e.grp.position.z; const wd=Math.hypot(wx,wz)||1;
       const st=steerDir(e, e.grp.position.x, e.grp.position.z, wx/wd, wz/wd, 0.55, e.zone);
-      const sp=e.speed*dt;
+      const sp=e.speed*dt*((e.slowT&&e.slowT>clock.elapsedTime)?0.45:1);   // Frostbite enchant slows the undead
       const c=clampEnemy(e.grp.position.x+st[0]*sp, e.grp.position.z+st[1]*sp, 0.5, e.zone);
       maybeCrossDoor(e, c.x, c.z);
       e.grp.position.x=c.x; e.grp.position.z=c.z;
@@ -1942,11 +1953,16 @@ function updateEnemies(dt){
 }
 
 /* ════════════════════ PLAYER (fixed-step) ════════════════════ */
+function armorDR(){ // sum diamond-armor damage reduction from worn pieces (any armor in the bag/hotbar counts as worn)
+  let dr=0; for(const z of [INV.hot,INV.main]) for(const s of z){ if(!s) continue; const d=itemDef(s.id); if(d&&d.kind==='armor') dr+=d.dr||0; }
+  return Math.min(0.8,dr);
+}
 function hurtPlayer(n){
   if(G.phase!=='play') return;
   const now=clock.elapsedTime;
   if(now < (G._hurtUntil||0)) return;     // brief i-frames: a whole swarm can't all land damage in one frame
   G._hurtUntil = now + 0.45;
+  n = Math.max(1, Math.round(n * (1 - armorDR())));   // diamond armor soaks damage
   G.health-=n; G.lastDmg=now; AU.hurt(); damageFlash();
   if(G.health<=0){ G.health=0; updateHealthHUD(); gameOver(); }
   else updateHealthHUD();
@@ -2209,6 +2225,11 @@ const MC_ITEMS = {
   gunpowder:   { name:'GUNPOWDER',    kind:'mat',  stack:64, place:false, desc:'Coal + flint. The heart of every craftable gun.' },
   essence:     { name:'ESSENCE',      kind:'mat',  stack:64, place:false, desc:'Distilled from diamond. Fuels enchanting & rifles.' },
   coin:        { name:'COIN',         kind:'mat',  stack:999,place:false, desc:'Gold coin — a movable money stack. Currency for villager trades.' },
+  wrench:      { name:'WRENCH',       kind:'mat',  stack:64, place:false, desc:'Repair tool — crafted from 2 iron.' },
+  helmet:      { name:'DIAMOND HELMET',     kind:'armor', stack:1, place:false, dr:0.10, slot:'head', desc:'Diamond helmet — worn, cuts incoming damage 10%.' },
+  chestplate:  { name:'DIAMOND CHESTPLATE', kind:'armor', stack:1, place:false, dr:0.20, slot:'chest', desc:'Diamond chestplate — worn, cuts incoming damage 20%.' },
+  leggings:    { name:'DIAMOND LEGGINGS',   kind:'armor', stack:1, place:false, dr:0.15, slot:'legs', desc:'Diamond leggings — worn, cuts incoming damage 15%.' },
+  boots:       { name:'DIAMOND BOOTS',      kind:'armor', stack:1, place:false, dr:0.10, slot:'feet', desc:'Diamond boots — worn, cuts incoming damage 10%.' },
   // food
   bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
   // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
@@ -2239,23 +2260,33 @@ const MC_RECIPES = [
   { name:'Obsidian',       desc:'stone ring + coal + iron core → 1 obsidian (1000 HP)', out:{type:'obsidian',count:1},
       shape:[['stone','coal','stone'],['coal','iron','coal'],['stone','coal','stone']] },
   { name:'Diamond Block',  desc:'9 diamonds → 1 diamond block',      out:{type:'diamondblock',count:1}, shape:[['diamond','diamond','diamond'],['diamond','diamond','diamond'],['diamond','diamond','diamond']] },
-  { name:'Diamond Pickaxe',desc:'3 diamonds + 2 planks → upgrade your pickaxe', out:{type:'diapick',count:1}, shape:[['diamond','diamond','diamond'],['','plank',''],['','plank','']] },
   { name:'Super Upgrade',  desc:'3 diamond blocks → 2× damage + 30% fire-rate on your held weapon', out:{type:'super',count:1}, shape:[['diamondblock','diamondblock','diamondblock']] },
   { name:'House Kit',      desc:'planks + door + wood → build a house in front of you', out:{type:'housekit',count:1},
       shape:[['plank','plank','plank'],['plank','door','plank'],['wood','wood','wood']] },
-  // ── new materials ──
-  { name:'Flint',          desc:'2 stone → 2 flint',                 out:{type:'flint',count:2},        shape:[['stone','stone']] },
-  { name:'Gunpowder',      desc:'coal + flint → 2 gunpowder',        out:{type:'gunpowder',count:2},    shape:[['coal','flint']] },
-  { name:'Essence',        desc:'diamond + coal → 2 essence',        out:{type:'essence',count:2},      shape:[['diamond','coal']] },
-  // ── GUN CRAFTING (iron = steel, + gunpowder + flint) ──
-  { name:'Craft Mauser',   desc:'iron + gunpowder + flint → a MAUSER pistol', out:{type:'pistol',count:1},
-      shape:[['','iron',''],['flint','gunpowder','flint']] },
-  { name:'Craft SMG',      desc:'2 iron + 2 gunpowder → an MP-40 SMG', out:{type:'smg',count:1},
-      shape:[['iron','iron'],['gunpowder','gunpowder']] },
-  { name:'Craft Shotgun',  desc:'3 iron + 3 gunpowder → a TRENCH GUN', out:{type:'shotgun',count:1},
-      shape:[['iron','iron','iron'],['gunpowder','gunpowder','gunpowder']] },
-  { name:'Craft Rifle',    desc:'3 iron + gunpowder + essence → a RIFLE', out:{type:'rifle',count:1},
-      shape:[['iron','iron','iron'],['','gunpowder',''],['','essence','']] },
+  // ── kit-exact tool / gun / armor / essence recipes (INVENTORY_SYSTEM_DOC §5; iron = the kit's "steel") ──
+  { name:'Stone Pickaxe',     desc:'cobblestone×3 + wood×2', out:{type:'pickaxe',count:1},
+      shape:[['cobblestone','cobblestone','cobblestone'],['','wood',''],['','wood','']] },
+  { name:'Diamond Pickaxe',   desc:'diamond×3 + wood×2 → upgrade your pickaxe', out:{type:'diapick',count:1},
+      shape:[['diamond','diamond','diamond'],['','wood',''],['','wood','']] },
+  { name:'Repair Wrench',     desc:'iron×2', out:{type:'wrench',count:1}, shape:[['iron'],['iron']] },
+  { name:'Diamond Helmet',    desc:'diamond×5', out:{type:'helmet',count:1},
+      shape:[['diamond','diamond','diamond'],['diamond','','diamond']] },
+  { name:'Diamond Chestplate',desc:'diamond×8', out:{type:'chestplate',count:1},
+      shape:[['diamond','','diamond'],['diamond','diamond','diamond'],['diamond','diamond','diamond']] },
+  { name:'Diamond Leggings',  desc:'diamond×7', out:{type:'leggings',count:1},
+      shape:[['diamond','diamond','diamond'],['diamond','','diamond'],['diamond','','diamond']] },
+  { name:'Diamond Boots',     desc:'diamond×4', out:{type:'boots',count:1},
+      shape:[['diamond','','diamond'],['diamond','','diamond']] },
+  { name:'Mauser',            desc:'iron×2 + gunpowder + flint → a Mauser pistol', out:{type:'pistol',count:1},
+      shape:[['','iron',''],['flint','gunpowder','iron'],['','wood','']] },
+  { name:'SMG',               desc:'iron×3 + gunpowder×2', out:{type:'smg',count:1},
+      shape:[['iron','iron','gunpowder'],['iron','gunpowder',''],['wood','','']] },
+  { name:'Shotgun',           desc:'iron×4 + gunpowder×2', out:{type:'shotgun',count:1},
+      shape:[['iron','iron','iron'],['gunpowder','gunpowder','iron'],['wood','wood','']] },
+  { name:'Rifle',             desc:'iron×4 + gunpowder×3 + flint', out:{type:'rifle',count:1},
+      shape:[['iron','iron','flint'],['gunpowder','gunpowder','gunpowder'],['wood','iron','wood']] },
+  { name:'Pingas Essence',    desc:'diamond×8 + iron → essence (enchant fuel)', out:{type:'essence',count:1},
+      shape:[['diamond','diamond','diamond'],['diamond','iron','diamond'],['diamond','diamond','diamond']] },
 ];
 function mcRecipeBookHTML(){
   return MC_RECIPES.map((r,ri)=>{
@@ -2629,7 +2660,8 @@ function casBindOnce(){ if(_casBound) return; _casBound=true;
   const sb=$('scratchBuy'); if(sb) sb.addEventListener('click', scratchBuy);
 }
 /* ════════════════════ MARKETPLACE + BITCOIN ════════════════════ */
-const MARKET=[['stone',15],['wood',15],['plank',12],['glass',25],['brick',30],['coal',20],['iron',45],['diamond',120],['dirt',8],['bread',60],['stick',8],['wheat',18],['cobblestone',12],['obsidian',80]];
+// kit-exact market prices (INVENTORY_SYSTEM_DOC §10; buy price = sell price; iron = the kit's "steel")
+const MARKET=[['cobblestone',50],['wood',60],['grass',20],['flint',80],['gunpowder',150],['essence',500],['coal',200],['iron',400],['obsidian',800],['diamond',1500],['pingasore',2000],['pickaxe',300],['wrench',500],['helmet',2500],['chestplate',4000],['leggings',3500],['boots',2000],['coin',250],['pistol',1000],['smg',2500],['shotgun',3000],['rifle',3500],['ak',4000],['sniper',5000]];
 let _mkBound=false, _btcPrice=125000, _btcHist=[], _btcTO=null;
 function mkBal(){ const e=$('mkBal'); if(e) e.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
 function openMarket(){ if(G.phase!=='play') return; G.phase='market'; document.exitPointerLock&&document.exitPointerLock();
@@ -2640,7 +2672,7 @@ function mkTab(name){ $('mkItems').classList.toggle('hidden',name!=='items'); $(
 function mkRenderItems(){ const g=$('mkItems'); if(!g) return; g.innerHTML='';
   MARKET.forEach(([id,price])=>{ const row=document.createElement('div'); row.className='mkRow';
     row.innerHTML='<div class="mcBlk" data-t="'+id+'"></div><span class="mkN">'+itemName(id)+' ◈'+price+'</span><button class="mkBuy">BUY</button><button class="mkSell">SELL</button>';
-    row.querySelector('.mkBuy').addEventListener('click',()=>{ if(spend(price)){ invAdd(id,1); mkBal(); if(AU&&AU.buy)AU.buy(); } });
+    row.querySelector('.mkBuy').addEventListener('click',()=>{ if(spend(price)){ const d=itemDef(id); if(d&&d.kind==='gun') giveWeapon(id,false); else invAdd(id,1); mkBal(); if(AU&&AU.buy)AU.buy(); } });
     row.querySelector('.mkSell').addEventListener('click',()=>{ if(invCount(id)>0){ invRemove(id,1); addPoints(price); mkBal(); if(AU&&AU.buy)AU.buy(); } });
     g.appendChild(row); }); }
 function _btcStep(){ const drift=(125000-_btcPrice)*0.02, vol=_btcPrice*0.03*(Math.random()*2-1); _btcPrice=Math.max(10000,Math.min(250000,_btcPrice+drift+vol)); _btcHist.push(_btcPrice); if(_btcHist.length>60) _btcHist.shift(); }
@@ -2659,21 +2691,35 @@ function mkBindOnce(){ if(_mkBound) return; _mkBound=true;
   document.querySelectorAll('.mkTab').forEach(t=>t.addEventListener('click',()=>mkTab(t.dataset.tab)));
   $('btcBuy').addEventListener('click',btcBuy); $('btcSell').addEventListener('click',btcSell); $('btcAmt').addEventListener('input',btcInfo); }
 
-/* ════════════════════ ENCHANTING ════════════════════ */
-const ENCHANTS=[['Speed I','fire rate +25%',2000,'speed'],['Power I','damage +30%',3000,'power'],['Vampirism','heal 6 HP per kill',4000,'vamp']];
+/* ════════════════════ ENCHANTING (INVENTORY_SYSTEM_DOC §11) ════════════════════ */
+// [name, desc, pointsCost, key, maxLevel, essenceCost]
+const ENCHANTS=[
+  ['Speed','fire rate +15% / level',2000,'speed',3,1],
+  ['Power','damage +20% / level',3000,'power',3,1],
+  ['Vampirism','heal 6 HP per kill',4000,'vamp',1,2],
+  ['Frostbite','hits slow the undead',4000,'frost',1,2],
+  ['Pingas Surge','hits chain to nearby foes',5000,'surge',1,3],
+];
 let _enBound=false;
-function enBal(){ const e=$('enBal'); if(e) e.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
+function enBal(){ const e=$('enBal'); if(e) e.textContent='◈ '+Math.floor(G.points).toLocaleString()+'  ·  '+invCount('essence')+' ESSENCE'; }
 function openEnchant(){ if(G.phase!=='play') return; G.phase='enchant'; document.exitPointerLock&&document.exitPointerLock();
   $('enchant').classList.remove('hidden'); enBal(); enRender(); enBindOnce(); }
 function closeEnchant(){ if(G.phase!=='enchant') return; $('enchant').classList.add('hidden'); G.phase='play'; lockMouse(); }
+function enApplyStats(w){ if(!w||!w.ench) return; const lv=w.ench;   // recompute derived stats from levels
+  w.enchRate = 1 + 0.15*(lv.speed||0);
+  w.enchDmg  = 1 + 0.20*(lv.power||0);
+}
 function enRender(){ const g=$('enList'); if(!g) return; g.innerHTML='';
-  ENCHANTS.forEach(([name,desc,cost,key])=>{ const w0=curW(); const has=w0&&w0.ench&&w0.ench[key];
+  ENCHANTS.forEach(([name,desc,cost,key,maxLv,ess])=>{ const w0=curW(); const lvl=(w0&&w0.ench&&w0.ench[key])||0; const maxed=lvl>=maxLv;
     const row=document.createElement('div'); row.className='enRow';
-    row.innerHTML='<span class="enN">'+name+'<br><small style="color:#9f88c0">'+desc+'</small></span><span class="enC">'+(has?'✓ applied':'◈'+cost)+'</span>';
+    const tag = maxed ? '✓ MAX' : ('◈'+cost+' + '+ess+'⚗');
+    row.innerHTML='<span class="enN">'+name+(maxLv>1?' '+'I'.repeat(lvl||0||1).slice(0,0)+(lvl?(' '+lvl+'/'+maxLv):''):'')+'<br><small style="color:#9f88c0">'+desc+'</small></span><span class="enC">'+tag+'</span>';
     row.addEventListener('click',()=>{ const w=curW(); if(!w){ $('enMsg').textContent='no gun held'; return; }
-      if(w.ench&&w.ench[key]){ $('enMsg').textContent='already applied'; return; }
+      const cur=(w.ench&&w.ench[key])||0; if(cur>=maxLv){ $('enMsg').textContent='already maxed'; return; }
+      if(invCount('essence')<ess){ $('enMsg').textContent='need '+ess+' essence'; return; }
       if(!spend(cost)){ $('enMsg').textContent='need ◈'+cost; return; }
-      w.ench=w.ench||{}; w.ench[key]=true; if(key==='power') w.enchDmg=1.3; if(key==='speed') w.enchRate=1.25;
+      invRemove('essence',ess);
+      w.ench=w.ench||{}; w.ench[key]=cur+1; enApplyStats(w);
       enBal(); enRender(); $('enMsg').textContent=name+' applied!'; if(AU&&AU.power)AU.power(); });
     g.appendChild(row); }); }
 function enBindOnce(){ if(_enBound) return; _enBound=true; $('enClose').addEventListener('click',closeEnchant); }
