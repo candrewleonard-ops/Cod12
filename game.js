@@ -1198,10 +1198,11 @@ function buildPlayerArms(){
   if(arms){ camera.remove(arms); }
   const w=G.weapons[G.cur];
   arms = KIT.makeArms(w.type, w.pap);
+  arms.userData.gunR = arms.userData.weapon;   // primary gun on the right hand
   // akimbo / super Mauser: add a 2nd (left) and 3rd (center) gun to the viewmodel
   if(w.type==='pistol' && w.akimbo){
-    const g2=KIT.makeWeapon('pistol', true); g2.scale.setScalar(0.70); g2.position.set(-0.30,-0.34,-0.66); g2.rotation.set(0.05,Math.PI,0); arms.add(g2);
-    if(w.superPaP){ const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.66); g3.position.set(-0.09,-0.28,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); }
+    const g2=KIT.makeWeapon('pistol', true); g2.scale.setScalar(0.70); g2.position.set(-0.30,-0.34,-0.66); g2.rotation.set(0.05,Math.PI,0); arms.add(g2); arms.userData.gunL=g2;
+    if(w.superPaP){ const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.66); g3.position.set(-0.09,-0.28,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3; }
   }
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
@@ -1319,6 +1320,50 @@ function fire(){
   }
   if(anyHit){ AU.hit(); hitmarker(); }
   addPoints(10); // additional money per shot fired
+}
+
+/* One akimbo barrel: its OWN ammo + cadence so left & right (and the super center) fire
+   fully independently. Returns true if fired, 'empty' if dry, false if rate-gated. */
+function fireBarrel(w, d, ammoKey, shotKey, gunMesh, dmgMul){
+  const now=clock.elapsedTime;
+  const rate = d.rate * (G.perks.has('doubleshot')?1.45:1) * (G.fireRateBuff>0?2:1) * (w.akimboRate||2.0) * (w.enchRate||1);
+  if(now - (w[shotKey]!=null?w[shotKey]:-9) < 1/rate) return false;
+  if((w[ammoKey]||0) <= 0) return 'empty';
+  w[shotKey]=now; w[ammoKey]--;
+  recoil = Math.min(0.5, recoil + 0.12*(G.perks.has('pingasliquid')?0.6:1));    // only this gun kicks
+  muzzle.intensity=2.4; muzzleT=now;
+  if(gunMesh && gunMesh.userData && gunMesh.userData.muzzle){ gunMesh.updateWorldMatrix(true,false);
+    const wp=gunMesh.localToWorld(gunMesh.userData.muzzle.clone()); camera.worldToLocal(wp); muzzle.position.copy(wp); }
+  else muzzle.position.set(0.2,-0.2,-1.2);
+  AU.shoot('pistol');
+  camera.getWorldDirection(_dir);
+  const ox=camera.position.x, oy=camera.position.y, oz=camera.position.z;
+  const pellets=(d.pellets||1)*(G.perks.has('doubleshot')?2:1);
+  let anyHit=false;
+  for(let p=0;p<pellets;p++){ let dx=_dir.x,dy=_dir.y,dz=_dir.z;
+    if(d.spread){ dx+=(Math.random()-0.5)*d.spread; dy+=(Math.random()-0.5)*d.spread; dz+=(Math.random()-0.5)*d.spread; const l=Math.hypot(dx,dy,dz); dx/=l;dy/=l;dz/=l; }
+    const hit=rayHitEnemy(ox,oy,oz,dx,dy,dz,d.range);
+    if(hit){ anyHit=true; const dmg=d.dmg*dmgMul*(hit.head?1.8:1); const bearingDeg=Math.atan2(dz,dx)*180/Math.PI;
+      if(hit.e) damageEnemy(hit.e,dmg,hit.head,bearingDeg);
+      else if(hit.boss) damageBoss(dmg);
+      else if(hit.mega) damageMega(dmg);
+      else if(hit.ore) damageOre(hit.ore,dmg); } }
+  if(anyHit){ AU.hit(); hitmarker(); }
+  addPoints(10);
+  return true;
+}
+// Left button → left gun, right button → right gun; super center gun fires with either hand.
+function fireAkimbo(side){
+  const w=curW(); if(!w||w.reloading) return;
+  const d=WDEF[w.type];
+  const dmgMul=(w.pap?2.2:1)*(G.instaKill>0?1000:1)*(w.superUpgrade?2:1)*(w.superPaP?1.4:1)*(w.enchDmg||1);
+  const ud=(arms&&arms.userData)||{};
+  const gun = side==='L' ? (ud.gunL||ud.weapon) : (ud.gunR||ud.weapon);
+  const r=fireBarrel(w, d, side==='L'?'ammoL':'ammoR', side==='L'?'lastShotL':'lastShotR', gun, dmgMul);
+  if(w.superPaP) fireBarrel(w, d, 'ammoC', 'lastShotC', ud.gunC||gun, dmgMul);   // center barrel
+  if(r==='empty'){ AU.dry(); flashReloadHint(); }
+  if(w.ammoL<=0 || w.ammoR<=0 || (w.superPaP && (w.ammoC||0)<=0)) startReload();  // any empty → all reload together
+  updateAmmoHUD();
 }
 
 /* Wonder weapon bolt pool — FULLY pre-allocated at boot (see prewarmFX).
@@ -1560,11 +1605,11 @@ function packAPunch(){
   // The Mauser cycles: none → Pack-a-Punch (AKIMBO) → SUPER PINGAS (triple). Other guns: single PaP.
   if(w.type==='pistol'){
     if(!w.pap){ if(!spend(5000)) return false; AU.power();
-      w.pap=true; w.akimbo=true; w.akimboRate=2.0; w.name='MAUSER ✦'; w.mag=18; w.reserve=180; w.ammo=18;
-      buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','akimbo Mausers · hold to spam','#35d6ff'); return true; }
+      w.pap=true; w.akimbo=true; w.akimboRate=2.0; w.name='MAUSER ✦'; w.mag=18; w.reserve=180; w.ammo=18; w.ammoL=18; w.ammoR=18;
+      buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','akimbo · L-click left gun · R-click right gun','#35d6ff'); return true; }
     if(!w.superPaP){ if(!spend(5000)) return false; AU.power();
-      w.superPaP=true; w.akimboRate=2.7; w.name='SUPER ✦ PINGAS'; w.mag=36; w.reserve=360; w.ammo=36;
-      buildPlayerArms(); updateAmmoHUD(); toast('SUPER PACK·A·PINGAS','triple Mauser · 36 rounds · max dmg','#ff48c0'); return true; }
+      w.superPaP=true; w.akimboRate=2.7; w.name='SUPER ✦ PINGAS'; w.reserve=360; w.cmag=36; w.ammoC=36; w.ammoL=w.mag; w.ammoR=w.mag; w.ammo=w.mag;
+      buildPlayerArms(); updateAmmoHUD(); toast('SUPER PACK·A·PINGAS','triple Mauser · center fires with either hand','#ff48c0'); return true; }
     return false;   // already super
   }
   if(w.pap) return false;
@@ -1619,6 +1664,7 @@ function perkName(id){ return id==='doubleshot'?'DOUBLE SHOT': id==='rootbeer'?'
 /* ════════════════════ WAVE DIRECTOR ════════════════════ */
 // Endless: milestone bosses at 12 (Mega → unlocks bunker) and 20 (Giga); waves never stop.
 const MEGA_ROUND=12, GIGA_ROUND=20;
+const START_ROUND=19;   // round the game begins on (1 = normal start). Set to 1 to play from the beginning.
 function startRound(n){
   G.round=n; G.roundActive=true;
   G.budget = Math.round(6 + n*3.5 + n*n*0.35);
@@ -1870,7 +1916,10 @@ function updateEnemies(dt){
 /* ════════════════════ PLAYER (fixed-step) ════════════════════ */
 function hurtPlayer(n){
   if(G.phase!=='play') return;
-  G.health-=n; G.lastDmg=clock.elapsedTime; AU.hurt(); damageFlash();
+  const now=clock.elapsedTime;
+  if(now < (G._hurtUntil||0)) return;     // brief i-frames: a whole swarm can't all land damage in one frame
+  G._hurtUntil = now + 0.45;
+  G.health-=n; G.lastDmg=now; AU.hurt(); damageFlash();
   if(G.health<=0){ G.health=0; updateHealthHUD(); gameOver(); }
   else updateHealthHUD();
 }
@@ -1999,7 +2048,13 @@ function applyReloadAnim(arms, type, p){
   else { if(W) W.o.rotation.z += 0.4*bell; if(part.mag){ part.mag.o.position.y += -0.62*_swap(p,0.08,0.6); } if(part.charge){ part.charge.o.position.z += -0.12*_win(p,0.82,0.96); } if(L) L.o.position.y += -0.28*_win(p,0.08,0.6); }
 }
 function startReload(){
-  const w=curW(); if(!w||w.reloading) return; if(w.ammo>=w.mag || w.reserve<=0) return;
+  const w=curW(); if(!w||w.reloading) return;
+  if(w.akimbo){   // both guns reload together (~1.5s)
+    const full=(w.ammoL>=w.mag)&&(w.ammoR>=w.mag)&&(!w.superPaP || (w.ammoC||0)>=(w.cmag||36));
+    if(full || w.reserve<=0) return;
+    w.reloading=true; w.reloadStart=clock.elapsedTime; w.reloadEnd=clock.elapsedTime+1.5; AU.reload(); flashReloadHint(true); return;
+  }
+  if(w.ammo>=w.mag || w.reserve<=0) return;
   const d=WDEF[w.type]; const rt=d.reload * (G.perks.has('pingasliquid')?0.55:1);
   w.reloading=true; w.reloadStart=clock.elapsedTime; w.reloadEnd=clock.elapsedTime+rt; AU.reload(); flashReloadHint(true);
 }
@@ -2009,7 +2064,13 @@ function updateReload(){
   const dur=(w.reloadEnd-w.reloadStart)||1, p=(clock.elapsedTime-(w.reloadStart||clock.elapsedTime))/dur;
   applyReloadAnim(arms, w.type, p); if(arms&&arms.userData) arms.userData._wasReloading=true;
   if(clock.elapsedTime>=w.reloadEnd){ w.reloading=false; clearReloadAnim(arms); if(arms&&arms.userData) arms.userData._wasReloading=false;
-    const need=w.mag-w.ammo, take=Math.min(need,w.reserve); w.ammo+=take; w.reserve-=take; updateAmmoHUD(); flashReloadHint(false); }
+    if(w.akimbo){ let res=w.reserve;
+      { const t=Math.min(w.mag-w.ammoL,res); w.ammoL+=t; res-=t; }
+      { const t=Math.min(w.mag-w.ammoR,res); w.ammoR+=t; res-=t; }
+      if(w.superPaP){ const cm=w.cmag||36; const t=Math.min(cm-(w.ammoC||0),res); w.ammoC=(w.ammoC||0)+t; res-=t; }
+      w.reserve=res; w.ammo=w.ammoR; }
+    else { const need=w.mag-w.ammo, take=Math.min(need,w.reserve); w.ammo+=take; w.reserve-=take; }
+    updateAmmoHUD(); flashReloadHint(false); }
 }
 
 /* ════════════════════ INTERACTION ════════════════════ */
@@ -2039,9 +2100,15 @@ function updateAmmoHUD(){ const a=$('ammo'), wn=$('wname');
   const melee = WDEF[w.type] && WDEF[w.type].kind==='melee';
   if(a) a.style.display = melee? 'none':'';      // melee tools (pickaxe) have no ammo either
   if(!melee){
-    a.querySelector('.mag').textContent = w.type==='axe'? (w.ammo?'●':'○') : w.ammo;
-    a.querySelector('.res').textContent = w.reserve;
-    a.classList.toggle('low', w.ammo<=Math.max(1,Math.ceil(w.mag*0.25)));
+    if(w.akimbo){
+      a.querySelector('.mag').textContent = w.superPaP ? (w.ammoL+'|'+w.ammoR+'|'+w.ammoC) : (w.ammoL+'·'+w.ammoR);
+      a.querySelector('.res').textContent = w.reserve;
+      a.classList.toggle('low', (w.ammoL<=4 || w.ammoR<=4));
+    } else {
+      a.querySelector('.mag').textContent = w.type==='axe'? (w.ammo?'●':'○') : w.ammo;
+      a.querySelector('.res').textContent = w.reserve;
+      a.classList.toggle('low', w.ammo<=Math.max(1,Math.ceil(w.mag*0.25)));
+    }
   }
   if(wn) wn.innerHTML = w.pap? '<span class="pap">'+w.name+'</span>' : w.name;
   updateNadeHUD();
@@ -2615,8 +2682,10 @@ function bindInput(){
         if(G._rbN>=3){ G._rbN=0; addPoints(100000); AU.power(); toast('☠ ADMIN','+100,000 points','#ffd23a'); } }
     }
     else if(e.button===2){ G.rightMouseDown=true;
+      const aw=curW();
+      if(aw && aw.akimbo){ /* akimbo: right button = fire the right gun (handled in simStep) */ }
       // right-click with a build item: place block / eat food / toggle a door
-      if(holdingBlock()){ if(!placeHeldBlock()) toggleDoorLook(); }
+      else if(holdingBlock()){ if(!placeHeldBlock()) toggleDoorLook(); }
       else if(holdingFood()){ eatHeld(); }
       else toggleDoorLook();
     }
@@ -2665,7 +2734,8 @@ function resetRun(){
   // clear any placed build blocks from a previous run
   if(typeof placedBlocks!=='undefined'){ for(const b of Array.from(placedBlocks.values())) removePlacedBlock(b,false); }
   { const bb=$('bossbar'); if(bb) bb.classList.add('hidden'); }
-  G.round=0; G.kills=0; G.points=500; G.powerOn=false; G.health=100; G.maxHealth=100;
+  const sr=Math.max(1,START_ROUND);
+  G.round=sr-1; G.kills=0; G.points=(sr>1?500+sr*1500:500); G.powerOn=(sr>1); G.health=100; G.maxHealth=100; G._hurtUntil=0;
   G.perks=new Set(); G.weapons=[newWeapon('pistol',false), newWeapon('pickaxe',false)]; G.cur=0; G.instaKill=0; G.doublePts=0; G.fireRateBuff=0;
   nadeCount=4; doorOpen=false; roofOpen=false; G.footY=0;
   if(roofBarrier){ roofBarrier.visible=true; roofBarrier.position.y=0; }
@@ -2701,7 +2771,7 @@ function hideAllScreens(){ ['loading','menu','pause','over','win'].forEach(s=>$(
 function updateCameraZoom(){
   const w=curW();
   let targetFov=74;
-  if(G.rightMouseDown && w){
+  if(G.rightMouseDown && w && !w.akimbo){
     if(w.type==='sniper') targetFov=30;       // scoped
     else if(w.type==='rifle') targetFov=45;   // marksman zoom
     else if(w.type==='pistol') targetFov=55;  // iron-sight zoom
@@ -2779,8 +2849,12 @@ function simStep(dt){
   const w=curW();
   const _aid=hotActiveId(), _ad=itemDef(_aid), _holdGun=!(_ad)|| _ad.kind==='gun';
   if(w && w.type==='axe'){ updateAxe(dt, G.mouseDown); }
+  else if(w && w.akimbo && _holdGun){                                   // akimbo: each button drives its own gun
+    if(G.mouseDown) fireAkimbo('L');
+    if(G.rightMouseDown) fireAkimbo('R');
+  }
   else if(G.mouseDown){
-    if(_holdGun){ if(w && (WDEF[w.type].auto || w.akimbo || canSemi())) fire(); }   // gun / pickaxe / akimbo in hand
+    if(_holdGun){ if(w && (WDEF[w.type].auto || canSemi())) fire(); }   // gun / pickaxe in hand
     else { tryMine(28, 3.2); }                                          // block/food in hand → left-click mines by hand
   }
   updatePlayer(dt);
