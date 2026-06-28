@@ -2402,6 +2402,16 @@ function slotClick(zone,i,right){
   }
   renderInv(); renderHotbar(); updateHeldCursor();
 }
+// ── DRAG-AND-DROP (kit moveItem): swap two slots across any zone; merge same-id stacks ──
+function moveItem(sz,si,dz,di){
+  if(sz===dz && si===di) return;
+  if((sz==='hot'&&si<2) || (dz==='hot'&&di<2)) return;   // hotbar slots 0-1 are weapon mirrors, not movable
+  const A=slotsForZone(sz), B=slotsForZone(dz); if(!A||!B) return;
+  const a=A[si], b=B[di];
+  if(a && b && a.id===b.id){ const max=itemStack(a.id), room=max-b.n, t=Math.min(room,a.n); b.n+=t; a.n-=t; if(a.n<=0) A[si]=null; }
+  else { A[si]=b; B[di]=a; }                              // swap (kit semantics)
+  renderInv(); renderHotbar(); mcEvalRecipe();
+}
 function mcReturnHeldAndCraft(){ // when closing: dump held + craft grid back into inventory
   for(let i=0;i<9;i++){ const s=INV.craft[i]; if(s){ const left=invAdd(s.id,s.n); INV.craft[i]=null; } }
   if(INV.held){ invAdd(INV.held.id,INV.held.n); INV.held=null; }
@@ -2424,7 +2434,21 @@ function mcBindOverlay(){ if(G._mcBound) return; G._mcBound=true; const ov=$('mc
     if(e.target===ov && INV.held){ dropItemToGround(INV.held.id,INV.held.n); INV.held=null; updateHeldCursor(); renderInv(); renderHotbar(); } });  // click the backdrop while holding → drop to ground
   ov.addEventListener('contextmenu', e=>{ e.preventDefault(); const z=zoneOf(e.target); if(z) slotClick(z[0],z[1],true); });
   ov.addEventListener('mousemove', e=>{ updateHeldCursor(e.clientX+14,e.clientY+14); });
-  const btn=$('mcCraftBtn'); if(btn) btn.addEventListener('click', mcCraft); }
+  const btn=$('mcCraftBtn'); if(btn) btn.addEventListener('click', mcCraft);
+  // ── HTML5 drag-and-drop (kit dragSlot/moveItem): drag a slot onto another to swap, onto the backdrop to drop ──
+  ov.querySelectorAll('.mcSlot').forEach(s=> s.setAttribute('draggable','true'));
+  let _dragS=null;
+  ov.addEventListener('dragstart', e=>{ const z=zoneOf(e.target); if(!z){ return; }
+    if(z[0]==='hot' && z[1]<2){ e.preventDefault(); return; }            // weapon slots don't drag
+    const arr=slotsForZone(z[0]); if(!arr||!arr[z[1]]){ e.preventDefault(); return; }   // empty slot: nothing to drag
+    _dragS={z:z[0],i:z[1]}; if(e.dataTransfer){ e.dataTransfer.effectAllowed='move'; try{ e.dataTransfer.setData('text/plain', z[0]+':'+z[1]); }catch(_){} } });
+  ov.addEventListener('dragover', e=>{ if(zoneOf(e.target) || e.target===ov) e.preventDefault(); });
+  ov.addEventListener('drop', e=>{ e.preventDefault(); if(!_dragS) return; const z=zoneOf(e.target);
+    if(z){ moveItem(_dragS.z,_dragS.i, z[0],z[1]); }
+    else if(e.target===ov){ const arr=slotsForZone(_dragS.z), s=arr&&arr[_dragS.i];   // backdrop → ground drop
+      if(s){ dropItemToGround(s.id,s.n); arr[_dragS.i]=null; renderInv(); renderHotbar(); mcEvalRecipe(); } }
+    _dragS=null; });
+  ov.addEventListener('dragend', ()=>{ _dragS=null; }); }
 
 // ── hotbar selection (scroll / number keys) ──
 function hotSelect(i){ if(i<0||i>4) return; INV.sel=i; renderHotbar(); refreshHeldHand();
@@ -3059,7 +3083,7 @@ window.__perf=(n)=>{ // isolate JS sim cost (the only thing MY code controls) fr
   s=performance.now(); for(let i=0;i<n;i++) renderer.render(scene,camera); const renderMs=(performance.now()-s)/n;
   return { simMs:+simMs.toFixed(4), renderMs:+renderMs.toFixed(3), alive:G.aliveCount, drawCalls:renderer.info.render.calls, triangles:renderer.info.render.triangles }; };
 // build-mode test hook
-window.__mc={ INV, invCount, invAdd, invRemove, mcOpen, mcClose, mcEvalRecipe, mcCraft, slotClick, hotSelect,
+window.__mc={ INV, invCount, invAdd, invRemove, mcOpen, mcClose, mcEvalRecipe, mcCraft, slotClick, hotSelect, moveItem,
   holdingBlock, holdingFood, placeHeldBlock, damagePlacedBlock, addPlacedBlock, blockAt, placedBlocks,
   mineables, damageMineable, eatHeld, supportCheck, get match(){ return mcMatch; } };
 // world-diagnostic hook (for debugging layout / spawn / perf)
