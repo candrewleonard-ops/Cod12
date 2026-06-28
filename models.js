@@ -262,6 +262,9 @@ class Kit {
       [-1,1].forEach(s=>{ const horn=new THREE.Mesh(new THREE.ConeGeometry(0.045,0.2,5), red); horn.position.set(s*0.09,0.2,-0.2); horn.rotation.z=s*0.45; g.add(horn); });
       g.add(this.at(this.box(0.16,0.05,0.05, red), 0,-0.02,0.26));          // sigil bar
       g.userData.muzzle=new THREE.Vector3(0,0.04,0.66);
+    } else if (type==='spacepistol') {
+      const sp=this.makeSpacePistol(); g.add(sp);
+      g.userData.muzzle=sp.userData.muzzle; g.userData.update=sp.userData.update;
     } else {
       g.add(this.box(0.1,0.17,1.12, metal));
       g.add(this.at(this.cyl(0.03,0.03,0.62, metal,'z'), 0,0.03,0.72));
@@ -280,6 +283,67 @@ class Kit {
     }
     return g;
   }
+  makeSpacePistol() { // alien-economy energy pistol. Glowing cell + emitter; reload swaps the cell.
+    const g=new THREE.Group();
+    const shell=this.mat(0xdfe6ee,0.3,0.7), accent=this.mat(0x2a2f3a,0.5,0.6), glow=this.glow(0x39e0ff,1.6), glow2=this.glow(0xff3df0,1.4);
+    g.add(this.at(this.box(0.2,0.34,1.5,shell),0,0.05,0.1));
+    g.add(this.at(this.box(0.22,0.12,1.1,glow),0,0.05,0.2));
+    g.add(this.at(this.box(0.18,0.5,0.26,accent),0,-0.34,-0.34));
+    g.add(this.at(this.box(0.16,0.2,0.2,glow2),0,-0.34,-0.34));
+    const em=new THREE.Mesh(new THREE.TorusGeometry(0.12,0.05,8,16), glow); em.position.set(0,0.05,0.92); em.rotation.y=Math.PI/2; g.add(em);
+    g.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.07,10,10),glow),0,0.05,0.95));
+    g.userData.muzzle=new THREE.Vector3(0,0.05,1.0);
+    g.userData.update=(t)=>{ em.material.emissiveIntensity=1.2+Math.sin(t*8)*0.6; };
+    this.shadow(g); return g;
+  }
+  makeSuperPingasMachine() { // SUPER PACK·A·PINGAS slot machine: 3 reels spin → land 3 pingas → dispenses an upgraded gun
+    const g=new THREE.Group();
+    const body=this.mat(0x140a20,0.5,0.35), gold=this.mat(0xd8a93a,0.4,0.6), goldGlow=this.glow(0xffd24a,0.7), darkM=this.mat(0x0a0610,0.8,0.2);
+    g.add(this.at(this.box(3.0,4.6,1.7,body),0,2.3,0));
+    g.add(this.at(this.box(3.25,0.5,1.85,gold),0,4.7,0));
+    g.add(this.at(this.box(3.25,0.4,1.85,gold),0,0.25,0));
+    [-1.5,1.5].forEach(x=> g.add(this.at(this.box(0.12,4.4,0.12,goldGlow),x,2.4,0.86)));
+    const marq=new THREE.Mesh(new THREE.PlaneGeometry(2.7,0.74), new THREE.MeshBasicMaterial({ map:this.labelLines(['SUPER','PACK·A·PINGAS'],'#ffd24a'), transparent:true })); marq.position.set(0,4.2,0.94); g.add(marq);
+    g.add(this.at(this.box(2.5,1.8,0.25,darkM),0,3.0,0.78));
+    const SP=0.92, faces=['cherry','strawberry','pingas'], landScroll=2*SP, reels=[];
+    const mkSymbol=(kind)=>{
+      if(kind==='pingas'){ const m=new THREE.Mesh(new THREE.PlaneGeometry(0.86,0.68), new THREE.MeshBasicMaterial({ color:0xffc0e0 }));
+        const f=new THREE.Mesh(new THREE.PlaneGeometry(0.8,0.8*(394/507)), new THREE.MeshBasicMaterial({ map:this.pingasTex(), transparent:true })); f.position.z=0.01; m.add(f); return m; }
+      const c=document.createElement('canvas'); c.width=c.height=128; const x=c.getContext('2d'); x.clearRect(0,0,128,128);
+      if(kind==='cherry'){ x.strokeStyle='#3a8a2a'; x.lineWidth=6; x.beginPath(); x.moveTo(64,16); x.quadraticCurveTo(88,42,44,86); x.moveTo(64,16); x.quadraticCurveTo(44,46,86,92); x.stroke();
+        x.fillStyle='#d11f2a'; [[44,94],[86,98]].forEach(p=>{ x.beginPath(); x.arc(p[0],p[1],20,0,7); x.fill(); }); x.fillStyle='#ff8090'; x.beginPath(); x.arc(38,88,6,0,7); x.fill(); }
+      else { x.fillStyle='#d11f2a'; x.beginPath(); x.moveTo(64,118); x.quadraticCurveTo(18,72,34,44); x.quadraticCurveTo(64,30,94,44); x.quadraticCurveTo(110,72,64,118); x.fill();
+        x.fillStyle='#3a8a2a'; x.beginPath(); x.moveTo(64,32); x.lineTo(46,12); x.lineTo(82,12); x.closePath(); x.fill();
+        x.fillStyle='#ffe08a'; for(let i=0;i<9;i++){ const ax=42+(i%3)*16+((i*7)%9), ay=52+Math.floor(i/3)*18; x.beginPath(); x.ellipse(ax,ay,3,5,0.5,0,7); x.fill(); } }
+      const tx=new THREE.CanvasTexture(c); return new THREE.Mesh(new THREE.PlaneGeometry(0.82,0.82), new THREE.MeshBasicMaterial({ map:tx, transparent:true }));
+    };
+    const place=(o)=>{ o.syms.forEach((s,k)=>{ let y=((k*SP - o.scroll) % (3*SP)); if(y>1.5*SP) y-=3*SP; if(y<-1.5*SP) y+=3*SP; s.position.y=y; s.visible=Math.abs(y)<SP*1.15; }); };
+    for(let r=0;r<3;r++){ const reel=new THREE.Group(); reel.position.set(-0.84+r*0.84,3.0,0.92); g.add(reel);
+      const syms=faces.map(f=>{ const s=mkSymbol(f); reel.add(s); return s; });
+      const o={ reel, syms, scroll:0, stop:0.46+r*0.13, target:null }; reels.push(o); place(o); }
+    g.add(this.at(this.box(2.6,1.05,0.2,body),0,4.0,0.97)); g.add(this.at(this.box(2.6,1.05,0.2,body),0,2.0,0.97));
+    const lever=new THREE.Group(); lever.position.set(1.64,2.9,0.2); g.add(lever);
+    lever.add(this.at(this.box(0.1,1.3,0.1,gold),0,0.65,0)); lever.add(this.at(new THREE.Mesh(new THREE.SphereGeometry(0.22,14,14),this.glow(0xff3a3a,0.8)),0,1.32,0));
+    g.add(this.at(this.box(2.2,0.5,0.75,darkM),0,0.95,0.7));
+    const reward=this.makeWeapon('rifle', true); reward.scale.setScalar(0.5); reward.rotation.y=Math.PI/2; reward.visible=false; g.add(reward);
+    const aura=new THREE.Mesh(new THREE.RingGeometry(0.5,0.66,30), this.glow(0xffd24a,1.6)); aura.rotation.x=-Math.PI/2; aura.visible=false; g.add(aura);
+    const pl=new THREE.PointLight(0xff48c0,0.7,9); pl.position.set(0,3.0,1.5); g.add(pl);
+    const winL=new THREE.PointLight(0xffd24a,0,11); winL.position.set(0,2.4,1.6); g.add(winL);
+    g.userData.update=(t)=>{
+      const C=12.0, p=((t)%C)/C;
+      if(p<0.06) reels.forEach(o=>{ o.target=null; });
+      lever.rotation.x = (p>0.10 && p<0.18) ? -1.1*Math.sin((p-0.10)/0.08*Math.PI) : 0;
+      reels.forEach((o)=>{ if(p<o.stop){ o.scroll+=0.5; } else { if(o.target==null) o.target=(Math.floor(o.scroll/(3*SP))+1)*3*SP+landScroll; o.scroll+=(o.target-o.scroll)*0.26; } place(o); });
+      const won = reels.every(o=>o.target!=null) && p>0.66;
+      winL.intensity = won ? 1.6+Math.sin(t*10)*0.8 : 0; pl.intensity = 0.5+Math.sin(t*4)*0.3;
+      if(won && p<0.95){ const k=(p-0.66)/0.29, e=Math.min(k/0.2,1); reward.visible=true; aura.visible=true;
+        reward.position.set(0, 1.18+Math.sin(t*2.5)*0.06, 0.7+e*0.95); reward.rotation.set(0,Math.PI/2+t*1.5,0.15);
+        aura.position.set(0,1.0,0.7+e*0.95); aura.material.emissiveIntensity=1.2+Math.sin(t*6)*0.6; }
+      else { reward.visible=false; aura.visible=false; }
+    };
+    g.userData.reward=reward;
+    return g;
+  }
   makeArms(type, pap) {
     const g=new THREE.Group();
     const sleeve=this.mat(0x2f3a2a,0.9,0);
@@ -288,10 +352,10 @@ class Kit {
     const weapon=(type==='pickaxe')?this.makePickaxe('stone'):(type==='diapick')?this.makePickaxe('diamond'):this.makeWeapon(type, pap); weapon.scale.setScalar(r.ws); weapon.position.set(r.wp[0],r.wp[1],r.wp[2]); weapon.rotation.set(r.wr[0],r.wr[1],r.wr[2]); g.add(weapon);
     const rArm=this.buildArm(sleeve, glove, r.rh, r.rr, 0.62); g.add(rArm);
     const lArm=this.buildArm(sleeve, glove, r.lh, r.lr, 0.60); g.add(lArm);
-    if (type==='pistol' && pap) {   // akimbo: symmetric twin Mausers + matching hands (matches the asset book)
+    if ((type==='pistol'||type==='spacepistol') && pap) {   // akimbo: symmetric twin pistols + matching hands
       g.remove(rArm); g.remove(lArm);
       weapon.position.set(0.26, r.wp[1], r.wp[2]);
-      const w2=this.makeWeapon('pistol', true); w2.scale.setScalar(r.ws); w2.position.set(-0.26, r.wp[1], r.wp[2]); w2.rotation.set(r.wr[0], r.wr[1], r.wr[2]); g.add(w2); g.userData.weapon2=w2;
+      const w2=this.makeWeapon(type, true); w2.scale.setScalar(r.ws); w2.position.set(-0.26, r.wp[1], r.wp[2]); w2.rotation.set(r.wr[0], r.wr[1], r.wr[2]); g.add(w2); g.userData.weapon2=w2;
       g.add(this.buildArm(sleeve, glove, [0.26, r.rh[1], r.rh[2]], [r.rr[0], r.rr[1], r.rr[2]], 0.62));
       g.add(this.buildArm(sleeve, glove, [-0.26, r.rh[1], r.rh[2]], [r.rr[0], -r.rr[1], -r.rr[2]], 0.62));
     }
@@ -304,6 +368,7 @@ class Kit {
       // wp/wr = weapon pos/rot, ws = scale; rh/rr = right hand, lh/lr = left hand (camera space).
       // Hand rotation X is POSITIVE so the forearm recedes down-and-back toward the player.
       pistol:  { ws:0.70, wp:[0.12,-0.34,-0.66], wr:[0.05,Math.PI,0], rh:[0.13,-0.45,-0.48], rr:[0.7,0.15,0.05],  lh:[0.00,-0.49,-0.54], lr:[0.85,-0.2,0.1] },
+      spacepistol: { ws:0.70, wp:[0.12,-0.34,-0.66], wr:[0.05,Math.PI,0], rh:[0.13,-0.45,-0.48], rr:[0.7,0.15,0.05],  lh:[0.00,-0.49,-0.54], lr:[0.85,-0.2,0.1] },
       smg:     { ws:0.62, wp:[0.15,-0.32,-0.82], wr:[0.05,Math.PI,0], rh:[0.17,-0.45,-0.56], rr:[0.68,0.18,0.05], lh:[0.03,-0.42,-1.00], lr:[1.0,-0.28,0] },
       shotgun: { ws:0.62, wp:[0.14,-0.33,-0.90], wr:[0.05,Math.PI,0], rh:[0.16,-0.46,-0.56], rr:[0.68,0.18,0.05], lh:[0.04,-0.43,-1.14], lr:[1.02,-0.3,0] },
       rifle:   { ws:0.60, wp:[0.14,-0.33,-0.94], wr:[0.05,Math.PI,0], rh:[0.16,-0.47,-0.58], rr:[0.7,0.18,0.05],  lh:[0.02,-0.42,-1.18], lr:[1.04,-0.26,0] },
@@ -1166,8 +1231,10 @@ class Kit {
     const perk2=this.makePerkMachine(['PINGAS','LIQUID'],0x4a2a66,0xff48c0); perk2.position.set(11,0.65,3); perk2.rotation.y=-1.4; plat.add(perk2); mUps.push(perk2.userData.update);
     const sniper=this.makeWallBuy('sniper','3000'); sniper.position.set(-11,0.65,3); sniper.rotation.y=1.4; plat.add(sniper);
     const sign=new THREE.Mesh(new THREE.PlaneGeometry(7,1.4), new THREE.MeshBasicMaterial({ map:this.label('SNIPER','#bfe0ff'), transparent:true })); sign.position.set(-11,4,3); sign.rotation.y=1.4; plat.add(sign);
+    const superM=this.makeSuperPingasMachine(); superM.scale.setScalar(0.5); superM.position.set(9,0.65,9); superM.rotation.y=-2.2; plat.add(superM); mUps.push(superM.userData.update);
     const plight=new THREE.PointLight(0xffd9a0,1.0,46); plight.position.set(0,7,0); plat.add(plight);
     const ladder=new THREE.Group(); ladder.position.set(0,0,LZ); g.add(ladder); g.userData.ladder=ladder;
+    g.add(this.at(this.box(4.2,0.3,3.0,this.mcMat('plank')), 0,0.16, LZ+1.6));         // plank landing pad at the ladder foot
     const ladM=this.mcMat('wood');                                     // shared material for rails + rungs
     [-0.85,0.85].forEach(x=> ladder.add(this.at(this.box(0.2,TH,0.2,ladM), x,TH/2,0)));
     const nRungs=Math.floor(TH/1.0), rungs=new THREE.InstancedMesh(new THREE.BoxGeometry(2.0,0.16,0.16),ladM,nRungs);

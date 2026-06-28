@@ -77,6 +77,7 @@ window.__G = G;
 // dmg is per-hit; fireRate in shots/sec; auto = hold to fire; pellets/spread for shotgun.
 const WDEF = {
   pistol:  { name:'MAUSER',        mag:8,  reserve:64,  rate:6,  dmg:42,  auto:false, reload:1.3, range:90, kind:'ballistic' },
+  spacepistol:{ name:'SPACE PISTOL', mag:12, reserve:120, rate:7, dmg:58, auto:false, reload:1.4, range:110,kind:'ballistic' },
   pickaxe: { name:'PICKAXE',         mag:1, reserve:0, rate:2.2, dmg:65,  auto:true, reload:0, range:4.2, kind:'melee', melee:true },
   diapick: { name:'DIAMOND PICKAXE', mag:1, reserve:0, rate:3.4, dmg:150, auto:true, reload:0, range:4.8, kind:'melee', melee:true },
   smg:     { name:'MP-40',        mag:32, reserve:240, rate:13, dmg:26,  auto:true,  reload:1.7, range:80, kind:'ballistic' },
@@ -265,6 +266,30 @@ function buildCompound(){
     addInteractable({ x:56-7, z:56-7, radius:4.5, type:'casino',
       label:()=> (G.footY>80)? {key:'F', txt:'Open PINGAS CASINO', cost:0} : null,   // only on the roof
       run:()=>{ openCasino(); return true; } });
+
+    // ── TREE-TOP LOADOUT DECK (B0): wire interactables to the machines makeGiantTree already builds
+    //    on the platform (pap -9,-9 · DoubleShot 9,-9 · PingasLiquid 11,3 · sniper -11,3 · SUPER 9,9). World = 56+local.
+    const onDeck=()=> G.footY>80;
+    addInteractable({ x:56-9, z:56-9, radius:3.4, type:'pap',
+      label:()=>{ if(!onDeck()) return null; if(!G.powerOn) return {key:'F', txt:'Pack-a-Pingas (needs power)', cost:0, cant:true};
+        const w=curW(); if(!w) return null; if(w.pap && w.type!=='pistol' && w.type!=='spacepistol') return {key:'F', txt:'Already Pingas-Punched', cost:0, cant:true};
+        return {key:'F', txt:'Pack-a-Pingas', cost:5000}; },
+      run:()=> onDeck() && packAPunch() });
+    addInteractable({ x:56+9, z:56+9, radius:4.0, type:'superpingas',
+      label:()=>{ if(!onDeck()) return null; const w=curW(); if(!w) return null;
+        if(w.superUpgrade) return {key:'F', txt:'Already Super-Pingas', cost:0, cant:true};
+        return {key:'F', txt:'SUPER Pack-a-Pingas', cost:0}; },
+      run:()=>{ if(!onDeck()) return false; const w=curW(); if(!w||w.superUpgrade) return false; applySuperUpgrade(); toast('SUPER UPGRADE','your gun is reforged','#ffd24a'); return true; } });
+    const deckPerk=(wx,wz,lines,trim,perkId)=>{ addInteractable({ x:wx, z:wz, radius:3.0, type:'perk', perkId,
+      label:()=>{ if(!onDeck()) return null; if(!G.powerOn) return {key:'F', txt:lines+' (needs power)', cost:0, cant:true};
+        if(G.perks.has(perkId)) return null; return {key:'F', txt:'Perk: '+lines, cost:2500}; },
+      run:()=> onDeck() && buyPerk(perkId,2500,trim) }); };
+    deckPerk(56+9, 56-9, 'DOUBLE SHOT', 0x35d6ff, 'doubleshot');
+    deckPerk(56+11, 56+3, 'PINGAS LIQUID', 0xff48c0, 'pingasliquid');
+    addInteractable({ x:56-11, z:56+3, radius:3.0, type:'wallbuy', wtype:'sniper',
+      label:()=>{ if(!onDeck()) return null; const have=G.weapons.find(w=>w.type==='sniper');
+        return have ? {key:'F', txt:'Refill SPRINGFIELD ammo', cost:900} : {key:'F', txt:'Buy SPRINGFIELD', cost:2000}; },
+      run:()=> onDeck() && buyWall('sniper',2000) });
   }
   // ── MARKETPLACE COMPUTER (by the shop) — buy/sell items + live BTC market ──
   { const mx2=20, mz2=24;
@@ -1201,9 +1226,9 @@ function buildPlayerArms(){
   // akimbo: makeArms already builds the symmetric twin Mausers (weapon=right, weapon2=left)
   arms.userData.gunR = arms.userData.weapon;
   arms.userData.gunL = arms.userData.weapon2 || arms.userData.weapon;
-  // SUPER: add the 3rd center Mauser (fires with either hand)
-  if(w.type==='pistol' && w.superPaP){
-    const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.70); g3.position.set(0,-0.34,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3;
+  // SUPER: add the 3rd center gun (fires with either hand)
+  if((w.type==='pistol'||w.type==='spacepistol') && w.superPaP){
+    const g3=KIT.makeWeapon(w.type, true); g3.scale.setScalar(0.70); g3.position.set(0,-0.34,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3;
   }
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
@@ -1596,21 +1621,22 @@ function buyWall(wtype,cost){
 }
 function mysteryCrate(){
   if(!spend(950)) return false; AU.buy();
-  const pool=['smg','shotgun','rifle','sniper','ak','lmg','wonder','axe'];
+  const pool=['smg','shotgun','rifle','sniper','ak','lmg','wonder','axe','spacepistol'];
   const pick=pool[(Math.random()*pool.length)|0];
   giveWeapon(pick, false); toast(WDEF[pick].name+'!','mystery reward','#ffd23a');
   return true;
 }
 function packAPunch(){
   if(!G.powerOn) return false; const w=curW(); if(!w) return false;
-  // The Mauser cycles: none → Pack-a-Punch (AKIMBO) → SUPER PINGAS (triple). Other guns: single PaP.
-  if(w.type==='pistol'){
+  // Both pistols cycle: none → Pack-a-Punch (AKIMBO) → SUPER (triple). Other guns: single PaP.
+  if(w.type==='pistol' || w.type==='spacepistol'){
+    const baseN = w.type==='spacepistol' ? 'SPACE PISTOL' : 'MAUSER';
     if(!w.pap){ if(!spend(5000)) return false; AU.power();
-      w.pap=true; w.akimbo=true; w.akimboRate=2.0; w.name='MAUSER ✦'; w.mag=18; w.reserve=180; w.ammo=18; w.ammoL=18; w.ammoR=18;
+      w.pap=true; w.akimbo=true; w.akimboRate=2.0; w.name=baseN+' ✦'; w.mag=18; w.reserve=180; w.ammo=18; w.ammoL=18; w.ammoR=18;
       buildPlayerArms(); updateAmmoHUD(); toast('PACK-A-PINGAS','akimbo · L-click left gun · R-click right gun','#35d6ff'); return true; }
     if(!w.superPaP){ if(!spend(5000)) return false; AU.power();
-      w.superPaP=true; w.akimboRate=2.7; w.name='SUPER ✦ PINGAS'; w.reserve=360; w.cmag=36; w.ammoC=36; w.ammoL=w.mag; w.ammoR=w.mag; w.ammo=w.mag;
-      buildPlayerArms(); updateAmmoHUD(); toast('SUPER PACK·A·PINGAS','triple Mauser · center fires with either hand','#ff48c0'); return true; }
+      w.superPaP=true; w.akimboRate=2.7; w.name='SUPER ✦ '+baseN; w.reserve=360; w.cmag=36; w.ammoC=36; w.ammoL=w.mag; w.ammoR=w.mag; w.ammo=w.mag;
+      buildPlayerArms(); updateAmmoHUD(); toast('SUPER PACK·A·PINGAS','triple gun · center fires with either hand','#ff48c0'); return true; }
     return false;   // already super
   }
   if(w.pap) return false;
@@ -2185,6 +2211,7 @@ const MC_ITEMS = {
   bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
   // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
   pistol:{ name:'MAUSER', kind:'gun', stack:1, place:false, desc:'C96 broomhandle Mauser — your starter sidearm.' },
+  spacepistol:{ name:'SPACE PISTOL', kind:'gun', stack:1, place:false, desc:'Alien energy pistol — Pack-a-Pingas it for akimbo & super.' },
   pickaxe:{ name:'PICKAXE', kind:'gun', stack:1, place:false, desc:'Melee tool — mines blocks & swings at the undead (130 pts/kill).' },
   diapick:{ name:'DIAMOND PICKAXE', kind:'gun', stack:1, place:false, desc:'Upgraded pickaxe — big melee + faster mining.' },
   smg:{ name:'MP-40', kind:'gun', stack:1, place:false, desc:'Wall-buy SMG.' },
