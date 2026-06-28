@@ -365,9 +365,11 @@ function buildMegaGate(){
   for(let i=0;i<13;i++){ const bar=KIT.at(KIT.box(20,2.8,3.4,KIT.mat(0x4a3a22,0.9,0)),0,2.4+i*3.2,0); g.add(bar); bars.push(bar); }
   const tag=new T.Mesh(new T.PlaneGeometry(15,3.4), new T.MeshBasicMaterial({map:KIT.label('$100,000','#ffe9a0'),transparent:true})); tag.position.set(0,49,0.4); tag.rotation.y=Math.PI; g.add(tag);
   KIT.shadow(g); scene.add(g);
-  const gate=addInteractable({ x:gx, z:gz, radius:8, type:'gate', cost:100000, open:false, planks:[], anim:0,
+  // interaction radius MUST exceed the collider radius (11) below, or the wall stops you before the prompt shows
+  const gate=addInteractable({ x:gx, z:gz, radius:15, type:'gate', cost:100000, open:false, planks:[], anim:0,
     label:()=> gate.open?null:{key:'F', txt:'Breach the Mega-Gate', cost:100000},
-    run:()=>{ if(gate.open||!spend(100000)) return false; gate.open=true; g.visible=false; AU.power();
+    run:()=>{ if(gate.open) return false; if(!spend(100000)){ toast('NEED $100,000','breach the Mega-Gate','#ffae3a'); return false; }
+      gate.open=true; g.visible=false; AU.power();
       toast('MEGA-GATE BREACHED','the forbidden area is open','#ffc24a'); return true; } });
   colliders.push({x:gx, z:gz, r:11, gate});          // wide solid until paid; cleared on open
   megaGate=gate;
