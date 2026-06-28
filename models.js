@@ -286,8 +286,15 @@ class Kit {
     const glove=this.mat(0x1c130c,0.85,0);
     const r=this.ARM_RIG[type] || this.ARM_RIG.smg;
     const weapon=(type==='pickaxe')?this.makePickaxe('stone'):(type==='diapick')?this.makePickaxe('diamond'):this.makeWeapon(type, pap); weapon.scale.setScalar(r.ws); weapon.position.set(r.wp[0],r.wp[1],r.wp[2]); weapon.rotation.set(r.wr[0],r.wr[1],r.wr[2]); g.add(weapon);
-    g.add(this.buildArm(sleeve, glove, r.rh, r.rr, 0.62));
-    g.add(this.buildArm(sleeve, glove, r.lh, r.lr, 0.60));
+    const rArm=this.buildArm(sleeve, glove, r.rh, r.rr, 0.62); g.add(rArm);
+    const lArm=this.buildArm(sleeve, glove, r.lh, r.lr, 0.60); g.add(lArm);
+    if (type==='pistol' && pap) {   // akimbo: symmetric twin Mausers + matching hands (matches the asset book)
+      g.remove(rArm); g.remove(lArm);
+      weapon.position.set(0.26, r.wp[1], r.wp[2]);
+      const w2=this.makeWeapon('pistol', true); w2.scale.setScalar(r.ws); w2.position.set(-0.26, r.wp[1], r.wp[2]); w2.rotation.set(r.wr[0], r.wr[1], r.wr[2]); g.add(w2); g.userData.weapon2=w2;
+      g.add(this.buildArm(sleeve, glove, [0.26, r.rh[1], r.rh[2]], [r.rr[0], r.rr[1], r.rr[2]], 0.62));
+      g.add(this.buildArm(sleeve, glove, [-0.26, r.rh[1], r.rh[2]], [r.rr[0], -r.rr[1], -r.rr[2]], 0.62));
+    }
     this.shadow(g);
     g.userData.weapon=weapon;
     return g;

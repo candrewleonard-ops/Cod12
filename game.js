@@ -1198,11 +1198,12 @@ function buildPlayerArms(){
   if(arms){ camera.remove(arms); }
   const w=G.weapons[G.cur];
   arms = KIT.makeArms(w.type, w.pap);
-  arms.userData.gunR = arms.userData.weapon;   // primary gun on the right hand
-  // akimbo / super Mauser: add a 2nd (left) and 3rd (center) gun to the viewmodel
-  if(w.type==='pistol' && w.akimbo){
-    const g2=KIT.makeWeapon('pistol', true); g2.scale.setScalar(0.70); g2.position.set(-0.30,-0.34,-0.66); g2.rotation.set(0.05,Math.PI,0); arms.add(g2); arms.userData.gunL=g2;
-    if(w.superPaP){ const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.66); g3.position.set(-0.09,-0.28,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3; }
+  // akimbo: makeArms already builds the symmetric twin Mausers (weapon=right, weapon2=left)
+  arms.userData.gunR = arms.userData.weapon;
+  arms.userData.gunL = arms.userData.weapon2 || arms.userData.weapon;
+  // SUPER: add the 3rd center Mauser (fires with either hand)
+  if(w.type==='pistol' && w.superPaP){
+    const g3=KIT.makeWeapon('pistol', true); g3.scale.setScalar(0.70); g3.position.set(0,-0.34,-0.74); g3.rotation.set(0.05,Math.PI,0); arms.add(g3); arms.userData.gunC=g3;
   }
   camera.add(arms);
   window.__SE.fpsArms=arms; window.__SE.weapon=w.type; window.__SE.pap=w.pap;
