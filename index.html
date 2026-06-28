@@ -391,19 +391,10 @@
   </div>
 
   <!-- PINGAS CASINO overlay (opened from the tree-roof terminal) -->
-  <div id="casino" class="hidden">
-    <div id="casPanel">
-      <div id="casTop"><span class="casTitle">🎰 PINGAS CASINO</span><span id="casBal">◈ 0</span><button id="casClose">✕</button></div>
-      <div id="casTabs"><button class="casTab sel" data-tab="plinko">PLINKO</button><button class="casTab" data-tab="scratch">SCRATCHER</button></div>
-      <div id="casPlinko" class="casGame">
-        <canvas id="plinkoCv" width="340" height="400"></canvas>
-        <div class="casCtl"><button id="plinkoDrop">DROP ◈100</button><span id="plinkoMsg">drop a ball</span></div>
-      </div>
-      <div id="casScratch" class="casGame hidden">
-        <div id="scratchGrid"></div>
-        <div class="casCtl"><button id="scratchBuy">BUY TICKET ◈250</button><span id="scratchMsg">scratch to match 3</span></div>
-      </div>
-    </div>
+  <!-- CASINO — the kit's real 4-game casino (Plinko/Blackjack/Roulette/Scratcher), embedded verbatim -->
+  <div id="casino" class="hidden" style="position:absolute; inset:0; z-index:40; background:rgba(3,5,9,.96); display:flex; align-items:center; justify-content:center; pointer-events:auto">
+    <iframe id="casinoFrame" title="Pingas Casino" style="width:100%; height:100%; border:0; background:#0a0710"></iframe>
+    <button id="casClose" style="position:absolute; top:14px; right:18px; z-index:41; pointer-events:auto; cursor:pointer; font-family:inherit; font-weight:700; letter-spacing:2px; color:#ffe9a0; background:rgba(26,15,40,.9); border:2px solid #ffc24a; border-radius:6px; padding:8px 14px">✕ CLOSE (Esc)</button>
   </div>
 
   <!-- LOADING -->
@@ -461,8 +452,8 @@
 </div>
 
 <script src="three.min.js"></script>
-<script src="resources.js?v=6"></script>
-<script src="models.js?v=6"></script>
-<script src="game.js?v=6"></script>
+<script src="resources.js?v=7"></script>
+<script src="models.js?v=7"></script>
+<script src="game.js?v=7"></script>
 </body>
 </html>

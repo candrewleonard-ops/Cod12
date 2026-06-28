@@ -2656,8 +2656,9 @@ const PLINKO_MULT=[9,3,1.5,0.5,0,0.5,1.5,3,9];
 const SCRATCH_SYM=[['💎',2000,1],['7️⃣',1000,2],['⭐',500,4],['🔔',300,6],['🍒',150,10]];
 function casBal(){ const el=$('casBal'); if(el) el.textContent='◈ '+Math.floor(G.points).toLocaleString(); }
 function openCasino(){ if(G.phase!=='play') return; G.phase='casino'; document.exitPointerLock&&document.exitPointerLock();
-  $('casino').classList.remove('hidden'); casBal(); casBindOnce(); plinkoDraw(); }
-function closeCasino(){ if(G.phase!=='casino') return; if(_plinkoTO){ clearTimeout(_plinkoTO); _plinkoTO=null; _plinkoBall=null; }
+  const fr=$('casinoFrame'); if(fr && !fr.src){ fr.src='casino.html'; }       // load the kit's real casino on first open
+  $('casino').classList.remove('hidden'); casBindOnce(); }
+function closeCasino(){ if(G.phase!=='casino') return;
   $('casino').classList.add('hidden'); G.phase='play'; lockMouse(); }
 function casTab(name){ $('casPlinko').classList.toggle('hidden', name!=='plinko'); $('casScratch').classList.toggle('hidden', name!=='scratch');
   document.querySelectorAll('.casTab').forEach(t=> t.classList.toggle('sel', t.dataset.tab===name)); if(name==='plinko') plinkoDraw(); }
@@ -2702,9 +2703,6 @@ function scratchResolve(){ const counts={}; _scratchCells.forEach(c=> counts[c.s
 }
 function casBindOnce(){ if(_casBound) return; _casBound=true;
   const cl=$('casClose'); if(cl) cl.addEventListener('click', closeCasino);
-  document.querySelectorAll('.casTab').forEach(t=> t.addEventListener('click', ()=> casTab(t.dataset.tab)));
-  const pd=$('plinkoDrop'); if(pd) pd.addEventListener('click', plinkoDrop);
-  const sb=$('scratchBuy'); if(sb) sb.addEventListener('click', scratchBuy);
 }
 /* ════════════════════ MARKETPLACE + BITCOIN ════════════════════ */
 // kit-exact market prices (INVENTORY_SYSTEM_DOC §10; buy price = sell price; iron = the kit's "steel")
