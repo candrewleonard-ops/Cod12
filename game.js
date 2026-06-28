@@ -2208,6 +2208,7 @@ const MC_ITEMS = {
   flint:       { name:'FLINT',        kind:'mat',  stack:64, place:false, desc:'Knapped from stone. Gun-crafting + gunpowder.' },
   gunpowder:   { name:'GUNPOWDER',    kind:'mat',  stack:64, place:false, desc:'Coal + flint. The heart of every craftable gun.' },
   essence:     { name:'ESSENCE',      kind:'mat',  stack:64, place:false, desc:'Distilled from diamond. Fuels enchanting & rifles.' },
+  coin:        { name:'COIN',         kind:'mat',  stack:999,place:false, desc:'Gold coin — a movable money stack. Currency for villager trades.' },
   // food
   bread:       { name:'BREAD',        kind:'food', stack:64, place:false, heal:9999, desc:'Right-click to EAT — instantly heal to full.' },
   // guns / tools (live in G.weapons; shown in slots 0-1 of the hotbar, never stacked)
@@ -2563,7 +2564,7 @@ function mcInitInventory(){
   for(let i=0;i<20;i++) INV.main[i]=null; for(let i=0;i<5;i++) INV.hot[i]=null; for(let i=0;i<9;i++) INV.craft[i]=null;
   INV.held=null; INV.sel=0;
   // starter kit so building/crafting is usable from round 1
-  const start={ stone:32, wood:16, plank:8, coal:8, dirt:16, wheat:6 };
+  const start={ stone:32, wood:16, plank:8, coal:8, dirt:16, wheat:6, coin:12 };
   for(const id in start) invAdd(id, start[id]);
   spawnMineNodes();
 }
